@@ -1,0 +1,60 @@
+{
+  "case_id": "case_sample_01",
+  "status": "success",
+  "document": {
+    "title": "Quantum Error Mitigation in Multi-Tenant Architectures (Illustrative Mock)",
+    "authors": ["Alice Smith", "Bob Jones"],
+    "abstract": "This mock abstract illustrates structured extraction results with verified evidence anchors.",
+    "sections": [
+      {
+        "heading": "1. Introduction",
+        "content": "Quantum processors operated below the fault-tolerance threshold.",
+        "page": 1,
+        "evidence_block_id": "b_1_9"
+      },
+      {
+        "heading": "2. Threat Model",
+        "content": "The adversary submits state ρ_{S} entangled with reference system R.",
+        "page": 2,
+        "evidence_block_id": "b_2_4"
+      }
+    ],
+    "tables": [
+      {
+        "table_id": "table_1",
+        "caption": "Table 1: Benchmark parameters comparison.",
+        "markdown": "| Metric | Baseline | Proposed |\n|---|---|---|\n| Fidelity | 85.4% | 94.2% |\n| Overhead | 1.0x | 1.15x |",
+        "html": "<table id=\"table_1\"><thead><tr><th>Metric</th><th>Baseline</th><th>Proposed</th></tr></thead><tbody><tr><td>Fidelity</td><td>85.4%</td><td>94.2%</td></tr><tr><td>Overhead</td><td>1.0x</td><td>1.15x</td></tr></tbody></table>",
+        "source_pages": [2],
+        "evidence_sources": [{ "page": 2, "bbox": [72.0, 310.0, 288.0, 420.0] }]
+      }
+    ],
+    "formulas": [
+      {
+        "formula_id": "1",
+        "latex": "ρ_{A} = Tr_{B}(ρ_{AB})  \\quad (1)",
+        "page": 2
+      }
+    ]
+  },
+  "sources": [
+    {
+      "claim_or_field": "Introduction.content",
+      "page": 1,
+      "block_id": "b_1_9",
+      "bbox": [54.0, 239.47, 558.0, 719.87]
+    },
+    {
+      "claim_or_field": "Threat Model.content",
+      "page": 2,
+      "block_id": "b_2_4",
+      "bbox": [54.0, 100.0, 288.0, 300.0]
+    }
+  ],
+  "uncertainty": [],
+  "diagnostics_summary": {
+    "total_pages": 3,
+    "dominant_route": "native_multicolumn",
+    "is_ocr_fallback_used": false
+  }
+}

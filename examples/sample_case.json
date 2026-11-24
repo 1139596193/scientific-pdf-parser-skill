@@ -1,0 +1,8 @@
+{
+  "case_id": "case_sample_01",
+  "task_description": "解析示例双栏科研论文，提取标题、摘要、一至二级章节、实验参数表格及公式依据。",
+  "input_pdf": "/input/sample_paper.pdf",
+  "output_contract": {
+    "required_fields": ["case_id", "status", "document", "sources", "uncertainty"]
+  }
+}
