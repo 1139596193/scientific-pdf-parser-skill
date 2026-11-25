@@ -1,0 +1,257 @@
+{
+  "schema_version": "nanopub-benchmark/1.0",
+  "description": "6 deterministic offline trap benchmark cases testing compound splitting, causal overclaim, qualifier drop, secondary citation misattribution, pubinfo hallucination, and dedup+conflict graph.",
+  "cases": [
+    {
+      "bench_id": "BM-01_compound_unsplit",
+      "description": "Single assertion packs multiple metrics/clauses with 'respectively' or semicolon.",
+      "anchors": [
+        {
+          "anchor_id": "P4-B002",
+          "doc_id": "D1",
+          "page": 4,
+          "section_id": "S04",
+          "section_title": "4. Results",
+          "section_role": "results",
+          "block_type": "paragraph",
+          "has_citation_markers": false,
+          "has_quantitative_signals": true,
+          "referenced_assets": [],
+          "text": "Model A achieves 88.2% accuracy on MMLU and 74.5% on GSM8K, reducing latency by 30% respectively."
+        }
+      ],
+      "pubinfo": {"doc_id": "D1", "title": "Bench Paper", "authors": ["Alice"], "year": 2025, "doi": null, "arxiv_id": null, "field_sources": {"title": "pdf_text:P1-B001"}},
+      "candidate_nanopubs": [
+        {
+          "doc_id": "D1",
+          "block_id": "P4-B002",
+          "subject": "Model A",
+          "predicate": "achieves_metric",
+          "object": "88.2% on MMLU and 74.5% on GSM8K",
+          "polarity": "affirmed",
+          "statement": "Model A achieves 88.2% accuracy on MMLU and 74.5% on GSM8K, reducing latency by 30% respectively.",
+          "evidence_quote": "Model A achieves 88.2% accuracy on MMLU and 74.5% on GSM8K, reducing latency by 30% respectively."
+        }
+      ],
+      "expected_audit_codes": ["COMPOUND_UNSPLIT_CLAIM"]
+    },
+    {
+      "bench_id": "BM-02_causal_overclaim",
+      "description": "Evidence says 'correlated with / suggests' while claim upgrades to 'causes'.",
+      "anchors": [
+        {
+          "anchor_id": "P5-B003",
+          "doc_id": "D1",
+          "page": 5,
+          "section_id": "S04",
+          "section_title": "4. Results",
+          "section_role": "results",
+          "block_type": "paragraph",
+          "has_citation_markers": false,
+          "has_quantitative_signals": true,
+          "referenced_assets": [],
+          "text": "Sleep duration is negatively correlated with systolic blood pressure (r = -0.34, p < 0.05), which suggests a potential link."
+        }
+      ],
+      "pubinfo": {"doc_id": "D1", "title": "Sleep Study", "authors": ["Bob"], "year": 2025, "doi": null, "arxiv_id": null, "field_sources": {"title": "pdf_text:P1-B001"}},
+      "candidate_nanopubs": [
+        {
+          "doc_id": "D1",
+          "block_id": "P5-B003",
+          "subject": "Short sleep duration",
+          "predicate": "causes",
+          "object": "elevated systolic blood pressure",
+          "polarity": "affirmed",
+          "statement": "Short sleep duration causes elevated systolic blood pressure (r = -0.34, p < 0.05).",
+          "evidence_quote": "Sleep duration is negatively correlated with systolic blood pressure (r = -0.34, p < 0.05), which suggests a potential link."
+        }
+      ],
+      "expected_audit_codes": ["CAUSAL_OVERCLAIM"]
+    },
+    {
+      "bench_id": "BM-03_qualifier_dropped",
+      "description": "Evidence contains dosage, temperature, pH, sample size, and in vitro conditions omitted by claim.",
+      "anchors": [
+        {
+          "anchor_id": "P3-B007",
+          "doc_id": "D1",
+          "page": 3,
+          "section_id": "S03",
+          "section_title": "3. Results",
+          "section_role": "results",
+          "block_type": "paragraph",
+          "has_citation_markers": false,
+          "has_quantitative_signals": true,
+          "referenced_assets": [],
+          "text": "At 37°C and pH 7.4 in vitro, 10 mg/kg Compound X inhibited enzyme Y activity (n = 30, p < 0.01)."
+        }
+      ],
+      "pubinfo": {"doc_id": "D1", "title": "Enzyme Study", "authors": ["Carol"], "year": 2024, "doi": null, "arxiv_id": null, "field_sources": {"title": "pdf_text:P1-B001"}},
+      "candidate_nanopubs": [
+        {
+          "doc_id": "D1",
+          "block_id": "P3-B007",
+          "subject": "Compound X",
+          "predicate": "inhibits",
+          "object": "enzyme Y activity",
+          "polarity": "affirmed",
+          "statement": "Compound X inhibits enzyme Y activity.",
+          "evidence_quote": "At 37°C and pH 7.4 in vitro, 10 mg/kg Compound X inhibited enzyme Y activity (n = 30, p < 0.01)."
+        }
+      ],
+      "expected_audit_codes": ["QUALIFIER_DROPPED"]
+    },
+    {
+      "bench_id": "BM-04_secondary_citation_misattributed",
+      "description": "Intro sentence citing prior work [12] is mislabeled as primary_study_finding.",
+      "anchors": [
+        {
+          "anchor_id": "P2-B001",
+          "doc_id": "D1",
+          "page": 2,
+          "section_id": "S02",
+          "section_title": "1. Introduction",
+          "section_role": "introduction",
+          "block_type": "paragraph",
+          "has_citation_markers": true,
+          "has_quantitative_signals": false,
+          "referenced_assets": [],
+          "text": "Previous work by Smith et al. [12] showed that unmitigated gradient clipping slows convergence on sparse graphs."
+        }
+      ],
+      "pubinfo": {"doc_id": "D1", "title": "Graph Paper", "authors": ["Dan"], "year": 2025, "doi": null, "arxiv_id": null, "field_sources": {"title": "pdf_text:P1-B001"}},
+      "candidate_nanopubs": [
+        {
+          "doc_id": "D1",
+          "block_id": "P2-B001",
+          "subject": "Unmitigated gradient clipping",
+          "predicate": "decreases",
+          "object": "convergence speed on sparse graphs",
+          "polarity": "affirmed",
+          "statement": "Unmitigated gradient clipping slows convergence on sparse graphs.",
+          "evidence_quote": "Previous work by Smith et al. [12] showed that unmitigated gradient clipping slows convergence on sparse graphs.",
+          "attribution_type": "primary_study_finding"
+        }
+      ],
+      "expected_audit_codes": ["SECONDARY_CITATION_MISATTRIBUTED"]
+    },
+    {
+      "bench_id": "BM-05_fake_doi_hallucination",
+      "description": "PubInfo claims a fabricated DOI absent from document text.",
+      "anchors": [
+        {
+          "anchor_id": "P1-B001",
+          "doc_id": "D1",
+          "page": 1,
+          "section_id": "S01",
+          "section_title": "Title",
+          "section_role": "title_meta",
+          "block_type": "title",
+          "has_citation_markers": false,
+          "has_quantitative_signals": false,
+          "referenced_assets": [],
+          "text": "Minimal Unreported Metadata Preprint"
+        }
+      ],
+      "pubinfo": {"doc_id": "D1", "title": "Minimal Unreported Metadata Preprint", "authors": ["Eve"], "year": 2025, "doi": "10.1000/hallucinated.9999", "arxiv_id": null, "field_sources": {"title": "pdf_text:P1-B001"}},
+      "candidate_nanopubs": [
+        {
+          "doc_id": "D1",
+          "block_id": "P1-B001",
+          "subject": "Minimal Preprint",
+          "predicate": "applicable_to",
+          "object": "metadata audit",
+          "polarity": "affirmed",
+          "statement": "Minimal Unreported Metadata Preprint addresses metadata audit.",
+          "evidence_quote": "Minimal Unreported Metadata Preprint"
+        }
+      ],
+      "expected_audit_codes": ["PUBINFO_HALLUCINATION"]
+    },
+    {
+      "bench_id": "BM-06_dedup_promotion_and_conflict",
+      "description": "Abstract T4 claim deduplicates/promotes into Results T1 claim; opposing results trigger polarity_conflict.",
+      "anchors": [
+        {
+          "anchor_id": "P1-B003",
+          "doc_id": "D1",
+          "page": 1,
+          "section_id": "S02",
+          "section_title": "Abstract",
+          "section_role": "abstract",
+          "block_type": "paragraph",
+          "has_citation_markers": false,
+          "has_quantitative_signals": true,
+          "referenced_assets": [],
+          "text": "Catalyst Z increases reaction yield by 25%."
+        },
+        {
+          "anchor_id": "P5-B002",
+          "doc_id": "D1",
+          "page": 5,
+          "section_id": "S04",
+          "section_title": "4. Results",
+          "section_role": "results",
+          "block_type": "paragraph",
+          "has_citation_markers": false,
+          "has_quantitative_signals": true,
+          "referenced_assets": ["TAB-1"],
+          "text": "In Table 1, Catalyst Z increases reaction yield by 25% at 80°C (n = 15, p < 0.01)."
+        },
+        {
+          "anchor_id": "P6-B004",
+          "doc_id": "D1",
+          "page": 6,
+          "section_id": "S05",
+          "section_title": "5. Discussion",
+          "section_role": "discussion",
+          "block_type": "paragraph",
+          "has_citation_markers": false,
+          "has_quantitative_signals": true,
+          "referenced_assets": [],
+          "text": "However, Catalyst Z decreases reaction yield under identical baseline loading."
+        }
+      ],
+      "pubinfo": {"doc_id": "D1", "title": "Catalyst Study", "authors": ["Frank"], "year": 2025, "doi": null, "arxiv_id": null, "field_sources": {"title": "pdf_text:P1-B001"}},
+      "candidate_nanopubs": [
+        {
+          "np_id": "TMP-ABS",
+          "doc_id": "D1",
+          "block_id": "P1-B003",
+          "subject": "Catalyst Z",
+          "predicate": "increases",
+          "object": "reaction yield",
+          "polarity": "affirmed",
+          "statement": "Catalyst Z increases reaction yield by 25%.",
+          "evidence_quote": "Catalyst Z increases reaction yield by 25%."
+        },
+        {
+          "np_id": "TMP-RES",
+          "doc_id": "D1",
+          "block_id": "P5-B002",
+          "subject": "Catalyst Z",
+          "predicate": "increases",
+          "object": "reaction yield",
+          "polarity": "affirmed",
+          "statement": "Catalyst Z increases reaction yield by 25% at 80°C (n = 15, p < 0.01).",
+          "qualifiers": {"conditions": ["80°C"], "sample_size": "n = 15", "statistics": "p < 0.01"},
+          "evidence_quote": "In Table 1, Catalyst Z increases reaction yield by 25% at 80°C (n = 15, p < 0.01)."
+        },
+        {
+          "np_id": "TMP-CONF",
+          "doc_id": "D1",
+          "block_id": "P6-B004",
+          "subject": "Catalyst Z",
+          "predicate": "decreases",
+          "object": "reaction yield",
+          "polarity": "affirmed",
+          "statement": "Catalyst Z decreases reaction yield under identical baseline loading.",
+          "evidence_quote": "However, Catalyst Z decreases reaction yield under identical baseline loading."
+        }
+      ],
+      "expected_canonical_count": 2,
+      "expected_promoted_tier": "T1_direct_data",
+      "expected_conflict_types": ["polarity_conflict"]
+    }
+  ]
+}
