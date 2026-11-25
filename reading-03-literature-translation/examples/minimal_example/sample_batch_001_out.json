@@ -1,0 +1,20 @@
+[
+  {
+    "unit_id": "U0001",
+    "translated_text": "微流控催化反应器中的自适应热控制",
+    "rationale": "Locked 'Microfluidic Catalytic Reactors' -> '微流控催化反应器'.",
+    "uncertainty": ""
+  },
+  {
+    "unit_id": "U0002",
+    "translated_text": "微流控催化反应器（MCR）在放热化学合成过程中能够实现快速的传热与传质 [1], [2]。然而，当催化剂负载量超过标准阈值时，局部热失控仍然是一个持续存在的瓶颈。在本研究中，我们引入了一种自适应比例-积分控制器，可在 0.25 ms 的响应窗口内将反应器核心稳定在 350 K。与传统的被动冷却回路 [3] 不同，我们的反馈方案不需要外部相变储热器，并且在连续流实验中将峰值温度超调量降低了 18.4%。如图 1 所示并受式 (1) 约束，温度偏差保持严格有界，在可变进料速度下其稳态振荡幅度至多为 0.4 K。",
+    "rationale": "Locked 'microfluidic catalytic reactor', 'thermal runaway', 'phase-change'; preserved negation '不需要', bound '至多', units '350 K / 0.25 ms / 18.4% / 0.4 K', citations [1]-[3], and cross-refs Fig. 1 / Eq. (1).",
+    "uncertainty": ""
+  },
+  {
+    "unit_id": "U0003",
+    "translated_text": "图 1. 运行在 350 K 且配备双光学传感器的微流控催化反应器（MCR）热反馈回路示意图。",
+    "rationale": "Locked 'microfluidic catalytic reactor' and preserved Figure 1 -> 图 1 and 350 K.",
+    "uncertainty": ""
+  }
+]

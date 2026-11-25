@@ -1,0 +1,3 @@
+source_term,canonical_target,aliases,forbidden_targets,rationale
+microfluidic catalytic reactor,微流控催化反应器,MCR,微流体催化炉,Standard Chinese chemical engineering term
+thermal runaway,热失控,,热暴走,Standard reaction safety terminology

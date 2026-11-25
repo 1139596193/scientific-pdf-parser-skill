@@ -1,0 +1,13 @@
+{
+  "case_id": "minimal_example_001",
+  "topic": "Chemical Engineering & Microfluidics (Fictional Demo)",
+  "instructions": "Translate the provided scientific excerpt from English into Chinese, maintaining locked terminology, numeric values, physical units, and citations.",
+  "output_contract": {
+    "case_id": "string",
+    "status": "string",
+    "bilingual_alignment": "list",
+    "glossary": "list",
+    "verification_summary": "object",
+    "uncertainty": "list"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Standardized reusable scientific glossary template for term-locked bilingual translation.",
+  "glossary_metadata": {
+    "case_id": "<CASE_ID>",
+    "source_language": "en",
+    "target_language": "zh",
+    "domain": "<DISCIPLINE_OR_TOPIC>",
+    "created_by": "term_extractor"
+  },
+  "terms": [
+    {
+      "term_id": "T001",
+      "source_term": "differential privacy",
+      "aliases": ["DP", "differentially private"],
+      "canonical_target": "差分隐私",
+      "allowed_target_variants": [],
+      "forbidden_targets": ["微分隐私", "差异隐私"],
+      "do_not_translate": false,
+      "case_sensitive": false,
+      "first_seen_unit": "U0001",
+      "first_seen_page": 1,
+      "rationale": "Standard Chinese academic terminology (GB/CCF recommended term for Differential Privacy).",
+      "source_origin": "extracted_auto"
+    },
+    {
+      "term_id": "T002",
+      "source_term": "QKDN",
+      "aliases": ["Quantum Key Distribution Network"],
+      "canonical_target": "QKDN",
+      "allowed_target_variants": ["量子密钥分发网络"],
+      "forbidden_targets": [],
+      "do_not_translate": true,
+      "case_sensitive": true,
+      "first_seen_unit": "U0002",
+      "first_seen_page": 1,
+      "rationale": "Established domain acronym kept in uppercase ASCII or annotated on first appearance.",
+      "source_origin": "external_locked"
+    }
+  ]
+}

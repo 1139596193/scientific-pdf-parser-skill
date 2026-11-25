@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0.0",
+  "glossary_metadata": {
+    "case_id": "minimal_example_001",
+    "source_language": "en",
+    "target_language": "zh",
+    "domain": "Chemical Engineering (Illustrative Demo)"
+  },
+  "terms": [
+    {
+      "term_id": "EXT_001",
+      "source_term": "microfluidic catalytic reactor",
+      "aliases": ["MCR"],
+      "canonical_target": "微流控催化反应器",
+      "allowed_target_variants": ["MCR"],
+      "forbidden_targets": ["微流体催化炉"],
+      "do_not_translate": false,
+      "case_sensitive": false,
+      "rationale": "Standard Chinese chemical engineering term",
+      "source_origin": "external_locked"
+    },
+    {
+      "term_id": "EXT_002",
+      "source_term": "thermal runaway",
+      "aliases": [],
+      "canonical_target": "热失控",
+      "allowed_target_variants": [],
+      "forbidden_targets": ["热暴走"],
+      "do_not_translate": false,
+      "case_sensitive": false,
+      "rationale": "Standard reaction safety terminology",
+      "source_origin": "external_locked"
+    },
+    {
+      "term_id": "T003",
+      "source_term": "phase-change",
+      "aliases": [],
+      "canonical_target": "相变",
+      "allowed_target_variants": [],
+      "forbidden_targets": [],
+      "do_not_translate": false,
+      "case_sensitive": false,
+      "rationale": "Thermodynamic standard term",
+      "source_origin": "agent_confirmed"
+    }
+  ]
+}
