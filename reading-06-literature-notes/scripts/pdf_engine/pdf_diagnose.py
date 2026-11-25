@@ -11,6 +11,7 @@ import sys
 import json
 import re
 import math
+import zlib
 import shutil
 import subprocess
 import argparse
@@ -135,7 +136,7 @@ def _select_preferred_backend(py_libs, cli_tools):
         return "pypdf"
     elif py_libs["pypdf2"]["available"]:
         return "pypdf2"
-    return "raw_fallback"
+    return "stdlib_zlib"
 
 
 # ----------------------------------------------------------------------
@@ -286,8 +287,256 @@ def extract_page_info_pdfplumber(pdf_path, env_info):
         }
 
 
+# ----------------------------------------------------------------------
+# 2b. Pure-Stdlib zlib Content Stream Extractor (Zero-Dependency Fallback)
+# ----------------------------------------------------------------------
+
+def _decode_pdf_literal(raw_str):
+    """Unescape a PDF literal string (...) into clean Unicode text."""
+    out = []
+    i = 0
+    n = len(raw_str)
+    while i < n:
+        ch = raw_str[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = raw_str[i + 1]
+            if nxt == "n":
+                out.append("\n")
+                i += 2
+            elif nxt == "r":
+                out.append(" ")
+                i += 2
+            elif nxt == "t":
+                out.append("\t")
+                i += 2
+            elif nxt == "b":
+                i += 2
+            elif nxt == "f":
+                out.append("\n")
+                i += 2
+            elif nxt in ("(", ")", "\\"):
+                out.append(nxt)
+                i += 2
+            elif nxt in ("\r", "\n"):
+                i += 2
+                if nxt == "\r" and i < n and raw_str[i] == "\n":
+                    i += 1
+            elif "0" <= nxt <= "7":
+                oct_digits = nxt
+                j = i + 2
+                while j < n and len(oct_digits) < 3 and "0" <= raw_str[j] <= "7":
+                    oct_digits += raw_str[j]
+                    j += 1
+                out.append(chr(int(oct_digits, 8)))
+                i = j
+            else:
+                out.append(nxt)
+                i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def _decode_pdf_hex(hex_str):
+    """Decode a PDF hex string <...> if it represents readable UTF-16BE or ASCII text."""
+    clean_hex = re.sub(r"\s+", "", hex_str)
+    if len(clean_hex) < 2 or len(clean_hex) % 2 != 0:
+        return ""
+    try:
+        raw_b = bytes.fromhex(clean_hex)
+    except ValueError:
+        return ""
+    if raw_b.startswith(b"\xfe\xff"):
+        try:
+            return raw_b[2:].decode("utf-16-be", errors="ignore")
+        except Exception:
+            return ""
+    # Only keep ASCII-printable / CJK-decodable chunks (skip raw glyph IDs)
+    txt = raw_b.decode("latin-1", errors="ignore")
+    printable = sum(1 for c in txt if 32 <= ord(c) <= 126 or "\u4e00" <= c <= "\u9fa5")
+    if txt and printable / len(txt) >= 0.80:
+        return txt
+    return ""
+
+
+def _extract_tj_text_from_stream(stream_text):
+    """Parse Tj / TJ / ' / \" text operators from a PDF content stream."""
+    lines = []
+    curr_line = []
+    n = len(stream_text)
+    i = 0
+
+    def _flush_line():
+        nonlocal curr_line
+        joined = "".join(curr_line).strip()
+        if joined:
+            lines.append(joined)
+        curr_line = []
+
+    def _read_literal(pos):
+        # pos points to '('
+        pos += 1
+        depth = 1
+        buf = []
+        while pos < n and depth > 0:
+            c = stream_text[pos]
+            if c == "\\" and pos + 1 < n:
+                buf.append(c)
+                buf.append(stream_text[pos + 1])
+                pos += 2
+                continue
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    pos += 1
+                    break
+            buf.append(c)
+            pos += 1
+        return _decode_pdf_literal("".join(buf)), pos
+
+    while i < n:
+        c = stream_text[i]
+        if c == "(":
+            lit, nxt_i = _read_literal(i)
+            # Check operator immediately following literal
+            rest = stream_text[nxt_i:nxt_i + 16].lstrip()
+            if rest.startswith("Tj") or rest.startswith("'") or rest.startswith('"'):
+                if rest.startswith("'") or rest.startswith('"'):
+                    _flush_line()
+                curr_line.append(lit)
+            i = nxt_i
+            continue
+        if c == "[":
+            # Scan array up to ']' followed by 'TJ'
+            j = i + 1
+            arr_parts = []
+            while j < n and stream_text[j] != "]":
+                cj = stream_text[j]
+                if cj == "(":
+                    lit, j = _read_literal(j)
+                    arr_parts.append(lit)
+                    continue
+                elif cj == "<":
+                    end_h = stream_text.find(">", j + 1)
+                    if end_h != -1:
+                        arr_parts.append(_decode_pdf_hex(stream_text[j + 1:end_h]))
+                        j = end_h + 1
+                        continue
+                elif cj in "-0123456789.":
+                    m_num = re.match(r"-?\d+(?:\.\d+)?", stream_text[j:])
+                    if m_num:
+                        try:
+                            kern = float(m_num.group(0))
+                            if kern <= -120:
+                                arr_parts.append(" ")
+                        except ValueError:
+                            pass
+                        j += len(m_num.group(0))
+                        continue
+                j += 1
+            if j < n and stream_text[j] == "]":
+                rest = stream_text[j + 1:j + 12].lstrip()
+                if rest.startswith("TJ"):
+                    curr_line.append("".join(arr_parts))
+                i = j + 1
+                continue
+        # Detect line-positioning operators (Td, TD, T*, ET)
+        if c in ("T", "E") and (i == 0 or not stream_text[i - 1].isalpha()):
+            op2 = stream_text[i:i + 3]
+            if op2.startswith(("Td", "TD", "T*", "ET")) and (len(op2) == 2 or not op2[2].isalpha()):
+                _flush_line()
+                i += 2
+                continue
+        i += 1
+    _flush_line()
+    cleaned = []
+    for ln in lines:
+        ln_clean = re.sub(r"\s+", " ", ln).strip()
+        if ln_clean:
+            printable = sum(1 for ch in ln_clean if 32 <= ord(ch) <= 126 or "\u4e00" <= ch <= "\u9fa5")
+            if len(ln_clean) >= 1 and printable / len(ln_clean) >= 0.65:
+                cleaned.append(ln_clean)
+    return "\n".join(cleaned)
+
+
+def extract_pdf_pages_stdlib_zlib(pdf_path):
+    """
+    Pure-stdlib fallback extractor using zlib.decompress on PDF FlateDecode streams
+    and parsing Tj/TJ text operators. Returns dict with page_count and per-page text/lines.
+    """
+    with open(pdf_path, "rb") as f:
+        raw = f.read()
+
+    stream_map = {}
+    stream_order = []
+    page_objs = []
+
+    for m in re.finditer(rb"(\d+)\s+(\d+)\s+obj\b(.*?)endobj", raw, re.S):
+        obj_id = int(m.group(1))
+        body = m.group(3)
+        if re.search(rb"/Type\s*/Page\b(?!s)", body):
+            c_ids = []
+            m_arr = re.search(rb"/Contents\s*\[([^\]]+)\]", body, re.S)
+            if m_arr:
+                c_ids = [int(x) for x in re.findall(rb"(\d+)\s+\d+\s+R", m_arr.group(1))]
+            else:
+                m_single = re.search(rb"/Contents\s+(\d+)\s+\d+\s+R", body)
+                if m_single:
+                    c_ids = [int(m_single.group(1))]
+            page_objs.append({"obj_id": obj_id, "contents": c_ids})
+
+        m_st = re.search(rb"^(.*?)stream(?:\r\n|\n|\r)(.*?)endstream", body, re.S)
+        if m_st:
+            dict_part = m_st.group(1)
+            st_bytes = m_st.group(2)
+            if re.search(rb"/Subtype\s*/Image|/Type\s*/Metadata", dict_part):
+                continue
+            dec = b""
+            if b"/FlateDecode" in dict_part:
+                for candidate in (st_bytes, st_bytes.rstrip(b"\r\n")):
+                    try:
+                        dec = zlib.decompress(candidate)
+                        break
+                    except zlib.error:
+                        continue
+            elif b"/Filter" not in dict_part:
+                dec = st_bytes
+            if dec and (b"Tj" in dec or b"TJ" in dec or b"BT" in dec):
+                txt = _extract_tj_text_from_stream(dec.decode("latin-1", errors="ignore"))
+                if txt.strip():
+                    stream_map[obj_id] = txt
+                    stream_order.append(obj_id)
+
+    page_count = len(page_objs)
+    if page_count == 0:
+        counts = [int(c) for c in re.findall(rb"/Type\s*/Pages\b[^>]*?/Count\s+(\d+)", raw, re.S)]
+        page_count = max(counts) if counts else (1 if stream_order else 1)
+
+    pages = []
+    if page_objs:
+        mapped_any = False
+        for idx, pobj in enumerate(page_objs, start=1):
+            parts = [stream_map[cid] for cid in pobj["contents"] if cid in stream_map]
+            if parts:
+                mapped_any = True
+            pages.append({"page_num": idx, "text": "\n".join(parts)})
+        if not mapped_any and stream_order:
+            all_txt = "\n".join(stream_map[sid] for sid in stream_order)
+            pages[0]["text"] = all_txt
+    else:
+        all_txt = "\n".join(stream_map[sid] for sid in stream_order)
+        pages.append({"page_num": 1, "text": all_txt})
+        for idx in range(2, page_count + 1):
+            pages.append({"page_num": idx, "text": ""})
+
+    return {"page_count": max(1, page_count), "pages": pages}
+
+
 def extract_page_info_cli(pdf_path, env_info):
-    """Fallback extraction using pdftotext / pdfinfo CLI tools."""
+    """Fallback extraction using pdftotext / pdfinfo CLI tools, then pure-stdlib zlib streams."""
     info_tool = env_info["cli_tools"]["pdfinfo"]["path"]
     totext_tool = env_info["cli_tools"]["pdftotext"]["path"]
 
@@ -314,6 +563,15 @@ def extract_page_info_cli(pdf_path, env_info):
             "error": "Document is encrypted according to pdfinfo.",
         }
 
+    zlib_fallback = None
+    if not totext_tool:
+        try:
+            zlib_fallback = extract_pdf_pages_stdlib_zlib(pdf_path)
+            if zlib_fallback and zlib_fallback["page_count"] > page_count:
+                page_count = zlib_fallback["page_count"]
+        except Exception:
+            zlib_fallback = None
+
     pages_data = []
     for p_num in range(1, page_count + 1):
         char_count = 0
@@ -323,10 +581,16 @@ def extract_page_info_cli(pdf_path, env_info):
             try:
                 res = subprocess.run([totext_tool, "-f", str(p_num), "-l", str(p_num), pdf_path, "-"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
                 text = res.stdout
-                char_count = len(text.strip())
-                _, garbled_ratio = calculate_garbled_metrics(text)
             except Exception:
-                pass
+                text = ""
+        elif zlib_fallback:
+            fb_pages = zlib_fallback.get("pages", [])
+            if p_num - 1 < len(fb_pages):
+                text = fb_pages[p_num - 1].get("text", "")
+
+        char_count = len(text.strip())
+        if text:
+            _, garbled_ratio = calculate_garbled_metrics(text)
 
         layout_type = "single_column" if char_count > 50 else "empty_or_scanned"
         route = recommend_route(layout_type, char_count, garbled_ratio, 0.0)
@@ -546,6 +810,10 @@ def diagnose_pdf(pdf_path):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Scientific PDF Diagnosis and Tooling Prober")
     parser.add_argument("--pdf", required=True, help="Path to target scientific PDF document")
     parser.add_argument("--out", required=True, help="Path to output diagnosis.json file")

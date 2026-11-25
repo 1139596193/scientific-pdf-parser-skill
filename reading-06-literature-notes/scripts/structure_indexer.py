@@ -260,6 +260,9 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
 
         if u_type == "heading":
             role = classify_section_role(txt)
+            if in_ref_zone and role == "body" and re.match(r"^[A-Z](?:\.\d+)*\.?\s+[A-Z]", txt):
+                role = "appendix"
+                ru["forced_role"] = "appendix"
             if role == "toc":
                 in_toc_zone = True
             elif role != "body" and not TOC_ENTRY_TAIL_REGEX.search(txt):
@@ -269,6 +272,8 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
                 in_ref_zone = True
             elif role == "appendix" and not TOC_ENTRY_TAIL_REGEX.search(txt):
                 in_ref_zone = False
+                if ru.get("reading_policy") == "reference_locked":
+                    ru["reading_policy"] = "analyze"
             elif in_ref_zone and role not in ("references", "body"):
                 in_ref_zone = False
         elif u_type == "reference" and not in_toc_zone:
@@ -360,13 +365,15 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
             active_sec = abstract_sec
         elif u_type == "heading":
             lvl = infer_heading_level(txt, raw_bt)
-            role = classify_section_role(txt)
+            role = ru.get("forced_role") or classify_section_role(txt)
             if role == "toc":
                 zone = "toc"
             elif role == "references":
                 zone = "references_locked"
-            elif role == "appendix":
+            elif role == "appendix" or (active_sec and active_sec.get("zone") == "appendix" and role == "body"):
                 zone = "appendix"
+                if role == "body":
+                    role = "appendix"
             else:
                 zone = "body"
             target_sec = _ensure_section(re.sub(r"\s+", " ", txt), lvl, role, zone, start_page)
@@ -694,6 +701,68 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
         "initial_uncertainty": uncertainty_records,
         "quality_notices": quality_notices,
     }
+
+    # ----------------------------------------------------------------
+    # Unnumbered-Prose Fallback: inject synthetic body section when
+    # the document has substantive content but no body-zone section
+    # (e.g. white papers, plain-text reports without heading numbering).
+    # ----------------------------------------------------------------
+    has_explicit_body = any(s["zone"] == "body" for s in sec_flat)
+    if not has_explicit_body and not is_scanned:
+        # Collect substantive prose/table/formula anchors trapped in non-body zones (e.g. after TOC/front_matter)
+        body_candidate_anchors = [
+            a for a in anchors
+            if a.get("zone") not in ("references_locked", "appendix")
+            and a.get("reading_policy") in ("analyze", None)
+            and a.get("block_type") not in ("heading", "reference", "title")
+            and not (a.get("block_type") == "metadata" and a.get("word_count", 0) < 25)
+            and not (a.get("zone") == "toc" and TOC_ENTRY_TAIL_REGEX.search(a.get("text", "").strip()))
+        ]
+        total_cand_wc = sum(a.get("word_count", 0) for a in body_candidate_anchors)
+        total_cand_cc = sum(a.get("char_count", 0) for a in body_candidate_anchors)
+        # Threshold: >=120 English words OR >=200 CJK characters -> inject fallback
+        if total_cand_wc >= 120 or total_cand_cc >= 200:
+            sec_counter += 1
+            prefix_fb = f"{doc_id}-" if multi_doc else ""
+            synth_sid = f"{prefix_fb}S{sec_counter:02d}"
+            first_page = body_candidate_anchors[0]["page"] if body_candidate_anchors else 1
+            last_page = body_candidate_anchors[-1]["page"] if body_candidate_anchors else first_page
+            synth_tokens = sum(_estimate_tokens(a.get("text", "")) for a in body_candidate_anchors)
+            synth_node = {
+                "section_id": synth_sid,
+                "doc_id": doc_id,
+                "parent_id": None,
+                "level": 1,
+                "title": "Main Body",
+                "canonical_role": "body",
+                "zone": "body",
+                "page_span": [first_page, last_page],
+                "block_count": len(body_candidate_anchors),
+                "word_count": total_cand_wc,
+                "char_count": total_cand_cc,
+                "estimated_tokens": synth_tokens,
+                "anchor_ids": [a["anchor_id"] for a in body_candidate_anchors],
+                "children": [],
+            }
+            sec_flat.append(synth_node)
+            sec_by_id[synth_sid] = synth_node
+            # Back-assign anchors to synthetic section
+            for a in body_candidate_anchors:
+                old_sid = a.get("section_id")
+                if old_sid and old_sid in sec_by_id and old_sid != synth_sid:
+                    old_s = sec_by_id[old_sid]
+                    old_s["block_count"] = max(0, old_s["block_count"] - 1)
+                    old_s["word_count"] = max(0, old_s["word_count"] - a.get("word_count", 0))
+                    old_s["char_count"] = max(0, old_s["char_count"] - a.get("char_count", 0))
+                    if a["anchor_id"] in old_s["anchor_ids"]:
+                        old_s["anchor_ids"].remove(a["anchor_id"])
+                a["section_id"] = synth_sid
+                a["section_title"] = "Main Body"
+                a["section_role"] = "body"
+                a["zone"] = "body"
+            # Rebuild section_tree to include synthetic node
+            top_sections = [s["section_id"] for s in sec_flat if s["parent_id"] is None]
+            section_tree = [_build_tree_node(sid) for sid in top_sections]
 
     sec_summary_flat = [
         {
@@ -1068,6 +1137,10 @@ def index_case(
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Deterministic Document Skeleton & Evidence Anchor Engine")
     parser.add_argument("--input-dir", default=".", help="Directory containing input case files")
     parser.add_argument("--work-dir", required=True, help="Directory to store indexed work artifacts")

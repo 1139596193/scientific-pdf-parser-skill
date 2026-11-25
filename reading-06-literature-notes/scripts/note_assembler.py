@@ -7,6 +7,7 @@ Top-level imports are strictly restricted to standard libraries.
 """
 
 import os
+import sys
 import json
 import re
 import glob
@@ -554,6 +555,10 @@ def assemble_notes(work_dir, patches_dir=None, patch_files=None, reset=False):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Incremental Literature Note Assembler & Provenance Engine")
     parser.add_argument("--work-dir", required=True, help="Work directory with evidence_index.json")
     parser.add_argument("--patches-dir", default=None, help="Directory of sorted *.json patch files")

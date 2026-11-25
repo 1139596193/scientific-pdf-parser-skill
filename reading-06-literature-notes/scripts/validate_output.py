@@ -226,6 +226,10 @@ def validate_output(output_dir, input_dir=None, work_dir=None, strict=False):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Hard Output Contract & Anti-Dishonest-Success Validator")
     parser.add_argument("--output-dir", required=True, help="Directory containing result.json and literature_notes.md")
     parser.add_argument("--input-dir", default=None, help="Optional input directory containing case.json")

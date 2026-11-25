@@ -7,6 +7,7 @@ Top-level imports are strictly restricted to standard libraries.
 """
 
 import os
+import sys
 import json
 import re
 import argparse
@@ -140,6 +141,16 @@ def map_contract_field_value(field_name, expected_type, payload):
         mapped = payload["change_log"]
     elif any(k in low for k in ("artifact", "file", "output")):
         mapped = payload["artifacts"]
+    elif low in ("title", "paper_title", "标题"):
+        mapped = (payload["paper_card"].get("title") or {}).get("value") or "Untitled"
+    elif any(k in low for k in ("key_results", "findings", "results", "实验结果", "主要发现")):
+        mapped = payload["paper_card"].get("key_results", [])
+    elif any(k in low for k in ("limitation", "assumption", "局限", "假设")):
+        mapped = (payload["paper_card"].get("limitations_and_assumptions") or {}).get("value") or "not_reported_in_source"
+    elif any(k in low for k in ("methodology", "method", "方法")):
+        mapped = (payload["paper_card"].get("methodology_summary") or {}).get("value") or "not_reported_in_source"
+    elif any(k in low for k in ("takeaway", "one_line", "核心结论")):
+        mapped = (payload["paper_card"].get("one_line_takeaway") or {}).get("value") or "not_reported_in_source"
     elif any(k in low for k in ("summary", "notes", "structured_notes", "reading_result", "overview", "摘要", "笔记", "总结")):
         exp_low = str(expected_type).lower()
         if exp_low in ("object", "dict"):
@@ -292,6 +303,20 @@ def _render_obsidian_markdown(payload, paper_signals):
     arxiv = (pc.get("arxiv_id") or {}).get("value") or "not_reported_in_source"
     tags = pc.get("tags") or []
 
+    key_results = pc.get("key_results", [])
+    takeaway_snap = _fmt_card_val(pc.get("one_line_takeaway"))
+    method_raw = str((pc.get("methodology_summary") or {}).get("value") or "not_reported_in_source").strip()
+    method_snap = method_raw if len(method_raw) <= 180 else method_raw[:177].rstrip() + "..."
+    method_anchors = " ".join(f"`[{aid}]`" for aid in ((pc.get("methodology_summary") or {}).get("anchor_ids") or []))
+    if method_anchors:
+        method_snap = f"{method_snap} {method_anchors}"
+
+    lim_raw = str((pc.get("limitations_and_assumptions") or {}).get("value") or "not_reported_in_source").strip()
+    lim_snap = lim_raw if len(lim_raw) <= 120 else lim_raw[:117].rstrip() + "..."
+    lim_anchors = " ".join(f"`[{aid}]`" for aid in ((pc.get("limitations_and_assumptions") or {}).get("anchor_ids") or []))
+    if lim_anchors:
+        lim_snap = f"{lim_snap} {lim_anchors}"
+
     lines = [
         "---",
         f"title: {_yaml_escape(title)}",
@@ -309,6 +334,22 @@ def _render_obsidian_markdown(payload, paper_signals):
         "",
         f"> **Case ID**: `{payload['case_id']}` | **Delivery Status**: `{payload['status']}` — {payload['status_reason']}",
         "",
+        "## ⚡ 核心速览 (Executive Snapshot)",
+        "",
+        f"> **一句话价值**：{takeaway_snap}",
+        f"> **方法主线**：{method_snap}",
+    ]
+    if key_results:
+        lines.append("> **Top 实证发现**：")
+        for kr in key_results[:2]:
+            kr_a = " ".join(f"`[{a}]`" for a in kr.get("anchor_ids", []))
+            kr_line = f"{kr.get('metric', '')}: {kr.get('value', '')} (vs {kr.get('baseline', 'not_reported_in_source')}; {kr.get('summary', '')}) {kr_a}".strip()
+            lines.append(f"> - {kr_line}")
+    else:
+        lines.append("> **Top 实证发现**：`not_reported_in_source`")
+    lines.extend([
+        f"> **关键局限**：{lim_snap}",
+        "",
         "## 1. 统一论文卡片 (Paper Card)",
         "",
         "| 字段 | 内容与来源定位 |",
@@ -325,9 +366,8 @@ def _render_obsidian_markdown(payload, paper_signals):
         f"| **Limitations & Assumptions** | {_fmt_card_val(pc.get('limitations_and_assumptions'))} |",
         f"| **Reusability & Takeaways** | {_fmt_card_val(pc.get('reusability_and_takeaways'))} |",
         "",
-    ]
+    ])
 
-    key_results = pc.get("key_results", [])
     lines.append("### 关键实验结果 (Key Results)")
     lines.append("")
     if key_results:
@@ -627,6 +667,10 @@ def render_deliverables(input_dir, work_dir, output_dir):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Literature Notes Contract Mapper & Deliverable Renderer")
     parser.add_argument("--input-dir", required=True, help="Input directory containing case.json")
     parser.add_argument("--work-dir", required=True, help="Work directory containing assembled_notes.json and evidence_audit.json")

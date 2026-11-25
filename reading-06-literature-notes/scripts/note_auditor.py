@@ -18,15 +18,16 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 try:
-    from entity_guard import load_invariants, extract_text_fingerprints, compare_claim_against_anchors
+    from entity_guard import load_invariants, extract_text_fingerprints, compare_claim_against_anchors, _normalize_ligatures
 except ImportError:
-    from .entity_guard import load_invariants, extract_text_fingerprints, compare_claim_against_anchors
+    from .entity_guard import load_invariants, extract_text_fingerprints, compare_claim_against_anchors, _normalize_ligatures
 
 PLACEHOLDER_LEAK_REGEX = re.compile(r"(?:\{\{[^}]+\}\}|\bTODO\b|\bTBD\b|\bplaceholder\b|\[待补充\]|待填写)", re.I)
 
 
 def _norm_for_quote(text):
-    t = (text or "").lower()
+    t = _normalize_ligatures(text or "")
+    t = t.lower()
     t = re.sub(r"-\s+", "", t)
     t = re.sub(r"[^\w\u4e00-\u9fa5]+", " ", t)
     return re.sub(r"\s+", " ", t).strip()
@@ -78,8 +79,30 @@ def _best_matching_sentence(claim_text, anchor_texts):
     if scored[0][0] < 2:
         return combined
     top_score = scored[0][0]
-    best = [s for sc, s in scored[:3] if sc >= max(2, top_score * 0.55)]
+    best = [s for sc, s in scored[:2] if sc >= max(2, top_score * 0.70)]
     return " ".join(best) if best else combined
+
+
+def _is_unpinned_long_crosslingual(probe_query, anchor_texts, quote_ok=False):
+    """True when anchor_texts is a long (>=5 sents) English block summarized in Chinese without verbatim_quote and <=2 shared tokens."""
+    if quote_ok:
+        return False
+    combined = " ".join(t for t in anchor_texts if t)
+    sents = [s.strip() for s in re.split(r"(?<=[.?!。！？])\s+|\n+", combined) if s.strip()]
+    if len(sents) < 5:
+        return False
+    has_zh_q = bool(re.search(r"[\u4e00-\u9fa5]", probe_query or ""))
+    has_en_a = bool(re.search(r"[A-Za-z]{4,}", combined))
+    if not (has_zh_q and has_en_a):
+        return False
+    q_tokens = set(re.findall(r"[a-z0-9_]{3,}|[\u4e00-\u9fa5]{2}", (probe_query or "").lower()))
+    max_ov = 0
+    for s in sents:
+        s_tokens = set(re.findall(r"[a-z0-9_]{3,}|[\u4e00-\u9fa5]{2}", s.lower()))
+        ov = len(q_tokens & s_tokens)
+        if ov > max_ov:
+            max_ov = ov
+    return max_ov <= 2
 
 
 def _collect_signal_ref_keys(paper_signals):
@@ -131,7 +154,9 @@ def audit_notes(work_dir, max_repair_items=15):
             paper_signals = json.load(f)
 
     invariants = load_invariants()
-    anchor_map = {a["anchor_id"]: a for a in evidence_index.get("anchors", []) if a.get("anchor_id")}
+    anchors_list = evidence_index.get("anchors", [])
+    anchor_map = {a["anchor_id"]: a for a in anchors_list if a.get("anchor_id")}
+    anchor_pos = {a["anchor_id"]: idx for idx, a in enumerate(anchors_list) if a.get("anchor_id")}
     signal_refs = _collect_signal_ref_keys(paper_signals)
     table_content_map = _collect_table_content_map(paper_signals)
 
@@ -175,6 +200,25 @@ def audit_notes(work_dir, max_repair_items=15):
 
         anchor_texts = [anchor_map[vid].get("text", "") for vid in expanded_ids]
 
+        # Collect sibling anchors in same section (±3 positions for numbers, ±1 for negation window)
+        sibling_texts = []
+        neg_pm1_texts = []
+        seen_sibs = set(expanded_ids)
+        for vid in valid_ids:
+            pos = anchor_pos.get(vid)
+            sec_id = anchor_map[vid].get("section_id")
+            if pos is None or not sec_id:
+                continue
+            for probe_idx in range(max(0, pos - 3), min(len(anchors_list), pos + 4)):
+                cand = anchors_list[probe_idx]
+                cid = cand.get("anchor_id")
+                if cid and cid not in seen_sibs and cand.get("section_id") == sec_id and cand.get("zone") != "references_locked":
+                    seen_sibs.add(cid)
+                    ctext = cand.get("text", "")
+                    sibling_texts.append(ctext)
+                    if abs(probe_idx - pos) <= 1:
+                        neg_pm1_texts.append(ctext)
+
         if verbatim_quote and not _quote_matches_source(verbatim_quote, anchor_texts):
             add_issue(
                 "high", "fabricated_quote", loc, tid,
@@ -185,12 +229,20 @@ def audit_notes(work_dir, max_repair_items=15):
         if not claim_text:
             return
 
-        cmp_res = compare_claim_against_anchors(claim_text, anchor_texts, invariants=invariants)
+        cmp_res = compare_claim_against_anchors(
+            claim_text, anchor_texts, invariants=invariants, section_context=sibling_texts
+        )
         if check_numbers:
             if cmp_res["unsupported_numbers"]:
                 add_issue(
                     "high", "unsupported_number", loc, tid,
                     f"Claim in {loc} ({tid}) asserts unsupported number(s) {cmp_res['unsupported_numbers']} not present in anchor(s) {valid_ids}.",
+                    valid_ids,
+                )
+            if cmp_res.get("same_section_matched"):
+                add_issue(
+                    "low", "same_section_number_context", loc, tid,
+                    f"Number(s) {cmp_res['same_section_matched']} in {loc} ({tid}) matched sibling anchor(s) in the same section rather than primary anchor(s) {valid_ids}.",
                     valid_ids,
                 )
             if cmp_res["unit_mismatches"]:
@@ -200,21 +252,44 @@ def audit_notes(work_dir, max_repair_items=15):
                     valid_ids,
                 )
 
-        # Sentence-scoped negation polarity check (using verbatim_quote if available to pinpoint exact sentence)
+        # Window-aware negation polarity check (target anchor + same-section ±1 window fallback)
+        neg_window_texts = anchor_texts + neg_pm1_texts
         quote_ok = bool(verbatim_quote) and _quote_matches_source(verbatim_quote, anchor_texts)
         probe_query = verbatim_quote if quote_ok else claim_text
         best_sent = _best_matching_sentence(probe_query, anchor_texts)
         sent_cmp = compare_claim_against_anchors(claim_text, best_sent, invariants=invariants)
         if sent_cmp["negation_alerts"]:
             alert = sent_cmp["negation_alerts"][0]
-            best_sent_count = len([s for s in re.split(r"(?<=[.?!。！？])\s+|\n+", best_sent) if s.strip()])
-            is_high_level_multi_sent = loc.startswith("paper_card.") and not loc.endswith("key_results") and best_sent_count >= 3 and not alert.get("claim_negation")
-            if not is_high_level_multi_sent:
-                add_issue(
-                    "high", "negation_polarity_mismatch", loc, tid,
-                    f"Negation polarity mismatch in {loc} ({tid}): {sent_cmp['negation_alerts']} vs anchor(s) {valid_ids}.",
-                    valid_ids,
-                )
+            a_neg = alert.get("anchor_negation", [])
+            c_neg = alert.get("claim_negation", [])
+            if a_neg and not c_neg:
+                # If note expresses an upper/lower bound qualifier (e.g. 至多/以内) for source 'never'/'no', treat as low notice
+                c_qual = sent_cmp["claim_fingerprints"]["logic_markers"].get("qualifier_bound", [])
+                bound_equiv = bool(c_qual) and set(a_neg).issubset({"never", "no"})
+                unpinned_long = _is_unpinned_long_crosslingual(probe_query, anchor_texts, quote_ok=quote_ok)
+                best_sent_count = len([s for s in re.split(r"(?<=[.?!。！？])\s+|\n+", best_sent) if s.strip()])
+                is_high_level_multi_sent = loc.startswith("paper_card.") and not loc.endswith("key_results") and best_sent_count >= 3
+                if bound_equiv or unpinned_long:
+                    add_issue(
+                        "low", "negation_polarity_notice", loc, tid,
+                        f"Cross-lingual negation/bound phrasing difference in {loc} ({tid}): {sent_cmp['negation_alerts']} vs anchor(s) {valid_ids}.",
+                        valid_ids,
+                    )
+                elif not is_high_level_multi_sent:
+                    add_issue(
+                        "high", "negation_polarity_mismatch", loc, tid,
+                        f"Negation polarity mismatch in {loc} ({tid}): {sent_cmp['negation_alerts']} vs anchor(s) {valid_ids}.",
+                        valid_ids,
+                    )
+            elif c_neg and not a_neg:
+                # Affirmative best sentence while note has negation/modifier: check full ±1 window first
+                win_cmp = compare_claim_against_anchors(claim_text, neg_window_texts, invariants=invariants)
+                if not win_cmp["anchor_fingerprints"]["logic_markers"]["negation"]:
+                    add_issue(
+                        "low", "negation_polarity_notice", loc, tid,
+                        f"Note in {loc} ({tid}) adds negation/modifier {c_neg} not explicitly flagged in ±1 window around {valid_ids}.",
+                        valid_ids,
+                    )
 
         # Cross-reference existence check (must exist in anchor OR paper_signals)
         c_refs = cmp_res["claim_fingerprints"]["cross_refs"]
@@ -451,6 +526,10 @@ def audit_notes(work_dir, max_repair_items=15):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="4-Fold Evidence, Numeric/Polarity & Honesty Auditor")
     parser.add_argument("--work-dir", required=True, help="Work directory containing assembled_notes.json")
     parser.add_argument("--max-repair-items", type=int, default=15, help="Max items in repair_queue.json")

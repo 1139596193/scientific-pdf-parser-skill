@@ -7,6 +7,7 @@ Top-level imports are strictly restricted to standard libraries.
 """
 
 import os
+import sys
 import json
 import re
 import argparse
@@ -147,7 +148,7 @@ def extract_text_fingerprints(text, block_type="paragraph", invariants=None):
     """Extract deterministic entity and logic fingerprints from arbitrary text."""
     if invariants is None:
         invariants = load_invariants()
-    text = text or ""
+    text = _normalize_ligatures(text or "")
     chars = list(text)
 
     # 1. Citations
@@ -277,16 +278,28 @@ def extract_text_fingerprints(text, block_type="paragraph", invariants=None):
     logic_hits = {"negation": [], "qualifier_bound": [], "concession_causal": []}
     logic_rules = invariants.get("logic_markers", {})
     text_low = text.lower()
-    zh_logic_text = re.sub(
-        r"不同|不仅|不断|不止|不亚于|不妨|不时|不免|不愧|不变|不确定|不足为|不当|不均|不等|"
-        r"无论|无非|无限|无意|无监督|无线|无损|无偏|无向|无穷|无噪声|无纠缠|无约束|"
-        r"非常|非但|非线性|非对称|非马尔可夫|非负|非参数|非局部|只不过",
+    zh_neg_text = re.sub(
+        r"不同|不仅|不断|不止于|不止|不亚于|不妨|不时|不免|不愧|不变|不确定|不足为|不当|不均|不等式|不等|"
+        r"不超过|不小于|不大于|不少于|不多于|不低于|不高于|不可避免|不依赖|不限于|不失一般性|不妨设|不论|不管|"
+        r"无关|无论|无非|无限|无意|无监督|无线|无损|无偏|无向|无穷|无噪声|无纠缠|无约束|无条件|无误差|无异|"
+        r"非常|非但|非均匀|非线性|非对称|非马尔可夫|非局域|非局部|非负|非零|非空|非平凡|非凸|非参数|非平衡|非正交|非高斯|非经典|而非|"
+        r"未归一化|归一化|只不过",
         "  ",
         text,
     )
+    en_neg_text = re.sub(
+        r"\b(?:different|at\s+most|at\s+least|bounded\s+by|no\s+more\s+than|no\s+less\s+than|and\s+no\s+more|"
+        r"never\s+exceeds?|inequalit(?:y|ies)|invariant|independent(?:ly)?|infinit(?:e|y)|"
+        r"non[-\s]?uniform|non[-\s]?linear|non[-\s]?markovian|non[-\s]?local|non[-\s]?negative|"
+        r"non[-\s]?zero|non[-\s]?empty|non[-\s]?trivial|non[-\s]?convex|non[-\s]?parametric|"
+        r"unsupervised|unbiased|noiseless|lossless|unconditional(?:ly)?|entanglement[-\s]?free|without\s+entanglement|unrelated)\b",
+        " ",
+        text_low,
+    )
     zh_strong_neg_triggers = [
-        "不", "未", "无", "没有", "无法", "难以", "未能", "并非", "不可", "非显著", "不能",
+        "不", "未", "无", "没有", "无法", "难以", "未能", "并非", "绝非", "不可", "非显著", "不能",
         "绝不", "并不", "并未", "不会", "缺乏", "缺少", "失败", "不可能", "不含", "不显著",
+        "关闭", "禁用", "停用",
     ]
 
     has_zh = bool(re.search(r"[\u4e00-\u9fa5]", text))
@@ -304,13 +317,17 @@ def extract_text_fingerprints(text, block_type="paragraph", invariants=None):
         for lang_key in langs_to_check:
             triggers = list(logic_rules.get(category, {}).get(lang_key, []))
             if category == "negation" and lang_key == "zh":
-                triggers = sorted(set(triggers) | set(zh_strong_neg_triggers))
+                triggers = sorted((set(triggers) | set(zh_strong_neg_triggers)) - {"非", "零"})
+            elif category == "negation" and lang_key == "en":
+                triggers = [t for t in triggers if t != "zero"]
             for trig in triggers:
                 if lang_key == "en":
-                    if re.search(r"\b" + re.escape(trig) + r"\b", text_low):
+                    hay_en = en_neg_text if category == "negation" else text_low
+                    if re.search(r"\b" + re.escape(trig) + r"\b", hay_en):
                         found.append(trig)
                 else:
-                    if trig in zh_logic_text:
+                    hay_zh = zh_neg_text if category == "negation" else text
+                    if trig in hay_zh:
                         found.append(trig)
         if found:
             logic_hits[category] = sorted(set(found))
@@ -356,27 +373,88 @@ def _decimal_places(num_str):
     return 0
 
 
-def compare_claim_against_anchors(claim_text, anchor_texts, invariants=None):
+# Word-to-numeral mapping for bidirectional matching
+_WORD_NUMERALS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+    "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+    "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+    "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+    "hundred": 100, "thousand": 1000, "million": 1000000,
+}
+# Reverse lookup: numeral -> word forms
+_NUM_TO_WORDS = {v: k for k, v in _WORD_NUMERALS.items()}
+
+
+def _normalize_ligatures(text):
+    """Normalize common PDF ligatures and hyphenated line-breaks to plain text."""
+    if not text:
+        return text
+    text = text.replace("\ufb01", "fi").replace("\ufb02", "fl")
+    text = text.replace("\ufb00", "ff").replace("\ufb03", "ffi").replace("\ufb04", "ffl")
+    text = text.replace("\ufb05", "st").replace("\ufb06", "st")
+    # Hyphenated line-break: "differ-\nential" -> "differential"
+    text = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1\2", text)
+    return text
+
+
+def _extract_word_numeral_floats(text):
+    """Extract float values expressed as word numerals from text (e.g. 'three' -> 3.0)."""
+    result = []
+    text_lower = text.lower()
+    for word, val in _WORD_NUMERALS.items():
+        # Match whole words only
+        if re.search(r"\b" + re.escape(word) + r"\b", text_lower):
+            result.append(float(val))
+    return result
+
+
+def compare_claim_against_anchors(claim_text, anchor_texts, invariants=None, section_context=None):
     """
     Compare a structured note claim against the text(s) of its cited anchor(s).
     Checks numeric/unit consistency, cross-ref fidelity, and negation/qualifier retention.
+
+    Args:
+        claim_text: The claim string to verify.
+        anchor_texts: Primary anchor text(s) — str or list of str.
+        invariants: Pre-loaded invariants dict (optional).
+        section_context: Optional list of sibling anchor texts from same section (±3 blocks).
+                         Numbers found only here are downgraded to severity='low'.
     """
     if invariants is None:
         invariants = load_invariants()
+    claim_text = _normalize_ligatures(claim_text or "")
     if isinstance(anchor_texts, str):
-        combined_anchor = anchor_texts
+        combined_anchor = _normalize_ligatures(anchor_texts)
     else:
-        combined_anchor = "\n".join(t for t in anchor_texts if t)
+        combined_anchor = _normalize_ligatures("\n".join(t for t in anchor_texts if t))
 
     c_fp = extract_text_fingerprints(claim_text, block_type="paragraph", invariants=invariants)
     a_fp = extract_text_fingerprints(combined_anchor, block_type="paragraph", invariants=invariants)
+
+    # Pre-build section context fingerprints if provided
+    sc_fp = None
+    sc_norm_set = set()
+    sc_floats = []
+    sc_word_floats = []
+    if section_context:
+        combined_sc = _normalize_ligatures("\n".join(t for t in section_context if t))
+        sc_fp = extract_text_fingerprints(combined_sc, block_type="paragraph", invariants=invariants)
+        sc_nums = sc_fp["numbers_units"]
+        sc_norm_set = {n["norm_value"] for n in sc_nums}
+        sc_floats = [(n, _to_float_safe(n["norm_value"])) for n in sc_nums]
+        sc_word_floats = _extract_word_numeral_floats(combined_sc)
 
     # Index anchor numbers by normalized string and float value
     a_nums = a_fp["numbers_units"]
     a_norm_set = {n["norm_value"] for n in a_nums}
     a_floats = [(n, _to_float_safe(n["norm_value"])) for n in a_nums]
+    # Also extract word-numeral floats from the primary anchor text
+    a_word_floats = _extract_word_numeral_floats(combined_anchor)
 
     unsupported_numbers = []
+    same_section_matched = []  # downgraded items found in section context
     unit_mismatches = []
 
     for cn in c_fp["numbers_units"]:
@@ -409,10 +487,32 @@ def compare_claim_against_anchors(claim_text, anchor_texts, invariants=None):
                     matched_items = equiv
                     pct_equiv_matched = True
 
+            # Word-numeral matching: "three baselines" vs "3 baselines"
+            if not matched_items and c_flt is not None:
+                if c_flt in a_word_floats:
+                    matched_items = [{"norm_value": c_val, "unit": "", "kind": "word_numeral_match"}]
+
         if not matched_items:
             # Ignore small ordinal/list numbers (1, 2, 3...) without units unless large or decimal/unit-bearing
             is_trivial_int = (not c_unit) and c_val.isdigit() and int(c_val) <= 12
-            if not is_trivial_int:
+            if is_trivial_int:
+                continue
+            # Try section context (sibling anchors) as fallback
+            sc_matched = False
+            if section_context and c_flt is not None:
+                c_dec = _decimal_places(c_val)
+                tol = 0.51 * (10 ** (-c_dec)) if c_dec > 0 else 1e-6
+                for _scn, scf in sc_floats:
+                    if scf is not None and abs(scf - c_flt) <= tol:
+                        sc_matched = True
+                        break
+                if not sc_matched and c_val in sc_norm_set:
+                    sc_matched = True
+                if not sc_matched and c_flt in sc_word_floats:
+                    sc_matched = True
+            if sc_matched:
+                same_section_matched.append(cn["raw"])
+            else:
                 unsupported_numbers.append(cn["raw"])
             continue
 
@@ -434,7 +534,9 @@ def compare_claim_against_anchors(claim_text, anchor_texts, invariants=None):
     c_neg = c_fp["logic_markers"]["negation"]
     negation_alerts = []
     if bool(a_neg) != bool(c_neg):
+        direction = "dropped_negation" if (a_neg and not c_neg) else "added_negation"
         negation_alerts.append({
+            "direction": direction,
             "anchor_negation": a_neg,
             "claim_negation": c_neg,
         })
@@ -452,6 +554,7 @@ def compare_claim_against_anchors(claim_text, anchor_texts, invariants=None):
     return {
         "passed": passed,
         "unsupported_numbers": unsupported_numbers,
+        "same_section_matched": same_section_matched,
         "unit_mismatches": unit_mismatches,
         "cross_ref_alerts": cross_ref_alerts,
         "negation_alerts": negation_alerts,
@@ -518,6 +621,10 @@ def run_entity_guard(work_dir):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Deterministic Entity & Logic Fingerprint Guard")
     parser.add_argument("--work-dir", required=True, help="Work directory containing evidence_index.json or source_units.json")
     args = parser.parse_args()

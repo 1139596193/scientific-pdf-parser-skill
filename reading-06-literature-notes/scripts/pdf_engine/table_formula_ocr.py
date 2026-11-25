@@ -399,6 +399,10 @@ def process_elements(pdf_path, diagnosis_path=None, layout_json_path=None, crops
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Academic Table Extraction and Targeted OCR")
     parser.add_argument("--pdf", required=True, help="Path to input PDF document")
     parser.add_argument("--diagnosis", default=None, help="Path to pdf_diagnose.py JSON")

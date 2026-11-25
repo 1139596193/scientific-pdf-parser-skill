@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-self_test.py - Offline Zero-Dependency 16-Case Regression Suite
+self_test.py - Offline Zero-Dependency 22-Case Regression Suite
 Part of the Scientific Literature Notes Skill (task_06_notes).
 Top-level imports are strictly restricted to standard libraries.
 """
@@ -32,7 +32,7 @@ from structure_indexer import (
 )
 from entity_guard import compare_claim_against_anchors
 from note_assembler import assemble_notes
-from note_auditor import audit_notes
+from note_auditor import audit_notes, _quote_matches_source
 from render_deliverables import render_deliverables
 from validate_output import validate_output
 
@@ -438,6 +438,7 @@ def test_16_complex_contract_and_obsidian_markdown_e2e():
         assert ok is True, f"Validation failed: {val_rep}"
         md_txt = open(os.path.join(out_dir, "literature_notes.md"), "r", encoding="utf-8").read()
         assert md_txt.startswith("---\n")
+        assert "## ⚡ 核心速览 (Executive Snapshot)" in md_txt
         assert "## 6. 可回查证据锚点原文附录" in md_txt
         assert "[P1-B009]" in md_txt
 
@@ -474,7 +475,250 @@ def test_18_cross_lingual_polarity_and_percent_equivalence():
     assert res_pos["passed"] is True, f"False negation alert on domain terms: {res_pos}"
 
 
+def test_19_unnumbered_prose_fallback_body_section():
+    # Part A: Unit test _build_document_index when prose follows TOC without body headings
+    doc_meta = {"doc_id": "D1", "source_file": "whitepaper.pdf", "page_count": 2, "diagnosis_summary": {"dominant_route": "native_clean"}}
+    prose_p1 = " ".join(["quantum"] * 75) + " achieves 88.2% reliability across distributed edge nodes."
+    prose_p2 = " ".join(["protocol"] * 75) + " reduces communication overhead under bounded channel noise."
+    units = [
+        {"unit_type": "title", "raw_block_type": "title", "source_text": "Whitepaper on Distributed Quantum Sensing", "page_span": [1, 1], "word_count": 5, "char_count": 41, "reading_policy": "analyze"},
+        {"unit_type": "heading", "raw_block_type": "heading", "source_text": "Contents", "page_span": [1, 1], "word_count": 1, "char_count": 8, "reading_policy": "analyze"},
+        {"unit_type": "paragraph", "raw_block_type": "paragraph", "source_text": prose_p1, "page_span": [1, 1], "word_count": 83, "char_count": len(prose_p1), "reading_policy": "analyze"},
+        {"unit_type": "paragraph", "raw_block_type": "paragraph", "source_text": prose_p2, "page_span": [2, 2], "word_count": 83, "char_count": len(prose_p2), "reading_policy": "analyze"},
+    ]
+    anchors, sec_flat, _tree, _sig = _build_document_index(doc_meta, units, multi_doc=False)
+    body_secs = [s for s in sec_flat if s["zone"] == "body"]
+    assert len(body_secs) >= 1, f"Expected synthetic body section, got: {sec_flat}"
+    assert any(a["zone"] == "body" and "88.2%" in a["text"] for a in anchors)
+
+    # Part B: End-to-end unnumbered prose markdown -> assemble -> audit -> render -> status=success
+    prose_md = (
+        "Distributed quantum sensing requires careful synchronization across heterogeneous optical links and low-noise repeaters. "
+        "In this technical report we examine phase stabilization protocols deployed across metropolitan fiber testbeds over thirty consecutive days. "
+        "Experimental telemetry demonstrates 91.4% state transfer fidelity across 42 km urban fibers without cryogenic repeater stations. "
+        "Throughput reaches 1200 entangled pairs per second under standard thermal fluctuation regimes.\n\n"
+        "Furthermore, we analyze calibration drift caused by diurnal temperature swings along aerial fiber spans and bridge conduits. "
+        "Adaptive feedback loops compensate polarization rotation within 15 ms, preventing burst error propagation across downstream receivers. "
+        "These empirical findings suggest metropolitan deployment is feasible using existing telecommunication infrastructure and off-the-shelf detectors."
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        in_dir, w_dir, out_dir, ev = _make_sample_doc_and_index(tmp, extra_md=prose_md)
+        body_secs_e2e = [s for s in ev["sections"] if s["zone"] == "body"]
+        assert len(body_secs_e2e) >= 1, f"Expected body section for unnumbered prose: {ev['sections']}"
+        sid = body_secs_e2e[0]["section_id"]
+        first_aid = [a["anchor_id"] for a in ev["anchors"] if a["section_id"] == sid][0]
+        patch = {
+            "paper_card": {
+                "one_line_takeaway": {"value": "Metropolitan quantum link achieves 91.4% fidelity over 42 km without cryogenic repeaters.", "anchor_ids": [first_aid]},
+                "key_results": [
+                    {"result_id": "RES-001", "metric": "Fidelity", "value": "91.4%", "summary": "Achieves 91.4% fidelity across 42 km fiber without cryogenic repeater stations.", "anchor_ids": [first_aid]}
+                ],
+            },
+            "section_summaries": [
+                {
+                    "section_id": sid,
+                    "summary": "Reports 91.4% fidelity over 42 km urban fiber without cryogenic repeaters and 15 ms polarization feedback.",
+                    "key_points": [
+                        {"text": "Telemetry demonstrates 91.4% fidelity across 42 km urban fibers without cryogenic repeater stations.", "anchor_ids": [first_aid], "verbatim_quote": "demonstrates 91.4% state transfer fidelity across 42 km"}
+                    ],
+                }
+            ],
+        }
+        p_file = os.path.join(w_dir, "patch.json")
+        open(p_file, "w", encoding="utf-8").write(json.dumps(patch, ensure_ascii=False))
+        with _quiet():
+            assemble_notes(w_dir, patch_files=[p_file])
+            rep = audit_notes(w_dir)
+            res = render_deliverables(in_dir, w_dir, out_dir)
+            ok, val_rep = validate_output(out_dir, in_dir, w_dir, strict=True)
+        assert rep["body_section_coverage"] > 0.0 and rep["body_section_coverage"] >= 0.85
+        assert rep["audit_passed"] is True, f"Audit issues: {rep['issues']}"
+        assert res["status"] == "success" and ok is True, f"Validate failed: {val_rep}"
+
+
+def test_20_same_section_number_fallback_and_word_numerals_and_ligatures():
+    # Test 1 & 2: Same-section sibling number -> low severity; truly absent number -> high severity
+    with tempfile.TemporaryDirectory() as tmp:
+        md = (
+            "# Quantum Report\n\n"
+            "## 1. Experiments\n\n"
+            "We evaluate the baseline encoder on standard benchmarks.\n\n"
+            "Our full system achieves 84.3% fidelity across trials.\n"
+        )
+        in_dir, w_dir, out_dir, ev = _make_sample_doc_and_index(tmp, extra_md=md)
+        exp_sec = [s for s in ev["sections"] if "Experiments" in s["title"]][0]
+        exp_anchors = [a for a in ev["anchors"] if a["section_id"] == exp_sec["section_id"] and a["block_type"] != "heading"]
+        assert len(exp_anchors) >= 2
+        a_first = exp_anchors[0]["anchor_id"]  # does NOT contain 84.3%, sibling exp_anchors[1] DOES
+
+        patch_sib = {
+            "section_summaries": [
+                {
+                    "section_id": exp_sec["section_id"],
+                    "summary": "Evaluates encoder achieving 84.3% fidelity.",
+                    "key_points": [
+                        {"text": "Baseline encoder achieves 84.3% fidelity.", "anchor_ids": [a_first]}
+                    ],
+                }
+            ]
+        }
+        p_file = os.path.join(w_dir, "sib_patch.json")
+        open(p_file, "w", encoding="utf-8").write(json.dumps(patch_sib, ensure_ascii=False))
+        with _quiet():
+            assemble_notes(w_dir, patch_files=[p_file])
+            rep_sib = audit_notes(w_dir)
+        low_sib_issues = [i for i in rep_sib["issues"] if i["issue_type"] == "same_section_number_context"]
+        assert low_sib_issues and all(i["severity"] == "low" for i in low_sib_issues), f"Expected low same-section issue: {rep_sib['issues']}"
+        assert rep_sib["blocking_issues_count"] == 0, f"Sibling number should not block: {rep_sib['issues']}"
+
+        # Truly hallucinated number (99.7%) not anywhere in section -> MUST stay high
+        patch_bad = {
+            "section_summaries": [
+                {
+                    "section_id": exp_sec["section_id"],
+                    "summary": "Hallucinated 99.7% result.",
+                    "key_points": [
+                        {"text": "Achieves 99.7% fidelity.", "anchor_ids": [a_first]}
+                    ],
+                }
+            ]
+        }
+        open(p_file, "w", encoding="utf-8").write(json.dumps(patch_bad, ensure_ascii=False))
+        with _quiet():
+            assemble_notes(w_dir, patch_files=[p_file])
+            rep_bad = audit_notes(w_dir)
+        assert any(i["issue_type"] == "unsupported_number" and i["severity"] == "high" for i in rep_bad["issues"])
+
+    # Test 3: Word numerals ("three baselines" vs "3 baselines", and "twenty epochs" vs "20 epochs")
+    res_wn1 = compare_claim_against_anchors("Compared against three baselines.", "Evaluated over 3 baselines.")
+    assert res_wn1["passed"] is True, f"Word numeral failed: {res_wn1}"
+    res_wn2 = compare_claim_against_anchors("Trained for 20 epochs.", "We train the network for twenty epochs.")
+    assert res_wn2["passed"] is True, f"Digit vs word numeral >12 failed: {res_wn2}"
+
+    # Test 4: Ligature normalization (fi ligature \ufb01 vs ASCII fi)
+    assert _quote_matches_source("e\ufb03cient quantum \ufb01ltering", ["efficient quantum filtering protocol"]) is True
+    assert _quote_matches_source("efficient filtering", ["e\ufb03cient \ufb01ltering protocol"]) is True
+
+    # Test 5: Hyphenated line break normalization ("differ-\nential" vs "differential")
+    assert _quote_matches_source("differ-\nential privacy", ["quantum differential privacy bounds"]) is True
+    assert _quote_matches_source("differential privacy", ["quantum differ-\nential privacy bounds"]) is True
+
+
+def test_21_chinese_neutral_negation_compounds_no_false_positive():
+    # 1. Neutral Chinese compounds ("不同", "不超过", "非均匀", "无关", "不等式", "无纠缠") must NOT trigger false blocking
+    en_src = "Different non-uniform Pauli mechanisms satisfy an inequality bounded by 2 and are independent of entanglement-free data."
+    zh_note = "不同的非均匀 Pauli 机制满足不超过 2 的不等式，且与无纠缠数据无关。"
+    res = compare_claim_against_anchors(zh_note, en_src)
+    assert res["passed"] is True, f"False positive on neutral compounds: {res}"
+
+    # 2. Auditor check: affirmative source + Chinese note with neutral compounds -> 0 blocking;
+    #    affirmative source + note adding a qualifier negation -> severity='low' (non-blocking);
+    #    strong negative source + claim dropping negation -> severity='high' (blocking)
+    with tempfile.TemporaryDirectory() as tmp:
+        md = (
+            "# Neutral Compound Audit Test\n\n"
+            "## 1. Method\n\n"
+            "The bound scales with factor 2 under non-uniform noise and independent states.\n\n"
+            "Our protocol does not converge when noise exceeds 35%.\n"
+        )
+        in_dir, w_dir, out_dir, ev = _make_sample_doc_and_index(tmp, extra_md=md)
+        sec = [s for s in ev["sections"] if "Method" in s["title"]][0]
+        ancs = [a for a in ev["anchors"] if a["section_id"] == sec["section_id"] and a["block_type"] != "heading"]
+        a_pos, a_neg = ancs[0]["anchor_id"], ancs[1]["anchor_id"]
+
+        # 2a. Neutral compounds + added modifier on affirmative anchor -> audit_passed=True
+        p_ok = {
+            "section_summaries": [{
+                "section_id": sec["section_id"],
+                "summary": "在非均匀噪声和无关态下，界不超过 2。",
+                "key_points": [
+                    {"text": "在非均匀噪声与无关态下，该不等式因子不超过 2（目前尚未做硬件平滑）。", "anchor_ids": [a_pos]},
+                    {"text": "当噪声超过 35% 时，协议无法收敛。", "anchor_ids": [a_neg]},
+                ],
+            }]
+        }
+        p_file = os.path.join(w_dir, "p_ok.json")
+        open(p_file, "w", encoding="utf-8").write(json.dumps(p_ok, ensure_ascii=False))
+        with _quiet():
+            assemble_notes(w_dir, patch_files=[p_file])
+            rep_ok = audit_notes(w_dir)
+        assert rep_ok["audit_passed"] is True and rep_ok["blocking_issues_count"] == 0, f"Unexpected blocking: {rep_ok['issues']}"
+
+        # 2b. Dropped strong negation on negative anchor -> MUST block with severity='high'
+        p_bad = {
+            "section_summaries": [{
+                "section_id": sec["section_id"],
+                "summary": "Protocol converges under 35% noise.",
+                "key_points": [
+                    {"text": "当噪声超过 35% 时协议顺利收敛。", "anchor_ids": [a_neg]},
+                ],
+            }]
+        }
+        open(p_file, "w", encoding="utf-8").write(json.dumps(p_bad, ensure_ascii=False))
+        with _quiet():
+            assemble_notes(w_dir, patch_files=[p_file])
+            rep_bad = audit_notes(w_dir)
+        assert rep_bad["audit_passed"] is False
+        assert any(i["issue_type"] == "negation_polarity_mismatch" and i["severity"] == "high" for i in rep_bad["issues"])
+
+
+def test_22_appendix_included_while_references_locked():
+    import zlib
+    from pdf_engine.pdf_diagnose import extract_pdf_pages_stdlib_zlib
+    from pdf_engine.layout_parser import extract_with_stdlib_zlib
+
+    # Part A: References locked out of reading packets, while Appendix A/B ARE included
+    md = (
+        "# Paper With Appendix Tables\n\n"
+        "## 1. Introduction\n\n"
+        "We study differential privacy under entanglement.\n\n"
+        "## References\n\n"
+        "[1] Doe et al., Quantum Privacy, 2024.\n\n"
+        "[2] Smith et al., Channel Bounds, 2025.\n\n"
+        "## Appendix A. Deferred Proofs\n\n"
+        "Theorem 2 proof details follow from Schmidt decomposition.\n\n"
+        "## Appendix B. Summary Parameters\n\n"
+        "Table 4 lists privacy bounds for depolarizing channels with epsilon 0.42.\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        in_dir, w_dir, out_dir, ev = _make_sample_doc_and_index(tmp, extra_md=md)
+        ref_secs = [s for s in ev["sections"] if s["zone"] == "references_locked"]
+        app_secs = [s for s in ev["sections"] if s["zone"] == "appendix"]
+        assert len(ref_secs) >= 1 and len(app_secs) >= 2, f"Unexpected sections: {ev['sections']}"
+
+        manifest = json.load(open(os.path.join(w_dir, "reading_packets", "manifest.json"), "r", encoding="utf-8"))
+        pkt_texts = "\n".join(
+            open(os.path.join(w_dir, "reading_packets", p["file"]), "r", encoding="utf-8").read()
+            for p in manifest["packets"]
+        )
+        assert "[1] Doe et al." not in pkt_texts, "References should stay locked out of reading packets"
+        assert "Appendix B. Summary Parameters" in pkt_texts, "Appendix B must be included in reading packets"
+        assert "Table 4 lists privacy bounds" in pkt_texts, "Appendix B table/prose must be included in reading packets"
+
+        # Part B: Verify pure-stdlib zlib FlateDecode PDF content-stream fallback
+        stream_body = b"BT /F1 12 Tf 72 720 Td (Quantum differential privacy achieves 92.5 percent accuracy across trials.) Tj ET"
+        comp = zlib.compress(stream_body)
+        pdf_bytes = (
+            b"%PDF-1.4\n"
+            b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+            b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+            b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >> endobj\n"
+            b"4 0 obj << /Filter /FlateDecode /Length " + str(len(comp)).encode("ascii") + b" >>\nstream\n"
+            + comp + b"\nendstream\nendobj\n%%EOF\n"
+        )
+        z_pdf = os.path.join(tmp, "zlib_test.pdf")
+        open(z_pdf, "wb").write(pdf_bytes)
+        diag_fb = extract_pdf_pages_stdlib_zlib(z_pdf)
+        assert "92.5 percent accuracy" in diag_fb["pages"][0]["text"]
+        lp_blocks = extract_with_stdlib_zlib(z_pdf)
+        assert lp_blocks and "92.5 percent accuracy" in lp_blocks[0]["blocks"][0]["text"]
+
+
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     tests = [
         test_01_split_mixed_roman_heading,
         test_02_toc_no_false_reference_lock,
@@ -494,6 +738,10 @@ def main():
         test_16_complex_contract_and_obsidian_markdown_e2e,
         test_17_author_cleaning_strips_arxiv_and_superscripts,
         test_18_cross_lingual_polarity_and_percent_equivalence,
+        test_19_unnumbered_prose_fallback_body_section,
+        test_20_same_section_number_fallback_and_word_numerals_and_ligatures,
+        test_21_chinese_neutral_negation_compounds_no_false_positive,
+        test_22_appendix_included_while_references_locked,
     ]
     t_start = time.time()
     passed = 0

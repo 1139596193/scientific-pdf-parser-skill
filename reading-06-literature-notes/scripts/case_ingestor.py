@@ -1579,6 +1579,10 @@ def ingest_case(input_dir, work_dir, single_file=None):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Universal Scientific Material Ingestion Engine")
     parser.add_argument("--input-dir", default=".", help="Directory containing input case files")
     parser.add_argument("--work-dir", required=True, help="Directory to save ingested intermediate artifacts")

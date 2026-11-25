@@ -314,6 +314,14 @@ def extract_raw_blocks(pdf_path, diagnosis=None):
         except Exception:
             pass
 
+    # 4. Pure-stdlib zlib content-stream fallback
+    try:
+        pages_blocks = extract_with_stdlib_zlib(pdf_path)
+        if pages_blocks:
+            return pages_blocks, "stdlib_zlib"
+    except Exception:
+        pass
+
     return [], "none"
 
 
@@ -408,6 +416,56 @@ def extract_with_pdftotext(pdf_path, tool_path):
                 "page": p_idx + 1,
             })
         pages_data.append({"page": p_idx + 1, "width": 595.0, "height": 842.0, "blocks": blocks})
+    return pages_data
+
+
+def extract_with_stdlib_zlib(pdf_path):
+    """Pure-stdlib zlib FlateDecode stream fallback when fitz/pdfplumber/pdftotext are unavailable."""
+    try:
+        from pdf_diagnose import extract_pdf_pages_stdlib_zlib
+    except ImportError:
+        from .pdf_diagnose import extract_pdf_pages_stdlib_zlib
+
+    fb = extract_pdf_pages_stdlib_zlib(pdf_path)
+    pages_data = []
+    for p_info in fb.get("pages", []):
+        p_num = p_info.get("page_num", 1)
+        raw_txt = (p_info.get("text") or "").strip()
+        if not raw_txt:
+            continue
+        lines = [ln.strip() for ln in raw_txt.splitlines() if ln.strip()]
+        # Coalesce short lines into paragraph-sized blocks cleanly
+        blocks = []
+        buf = []
+        for ln in lines:
+            buf.append(ln)
+            if ln.endswith((".", "!", "?", "。", "！", "？")) and sum(len(x) for x in buf) >= 80:
+                para = " ".join(buf)
+                if not is_junk_control_block(para):
+                    b_idx = len(blocks)
+                    blocks.append({
+                        "bbox": [50.0, 80.0 + b_idx * 45.0, 540.0, 118.0 + b_idx * 45.0],
+                        "text": clean_text_spans(para),
+                        "spans": [{"text": para, "size": 10.0, "font": "fallback", "baseline": 118.0}],
+                        "fonts": [],
+                        "avg_size": 10.0,
+                        "page": p_num,
+                    })
+                buf = []
+        if buf:
+            para = " ".join(buf)
+            if not is_junk_control_block(para):
+                b_idx = len(blocks)
+                blocks.append({
+                    "bbox": [50.0, 80.0 + b_idx * 45.0, 540.0, 118.0 + b_idx * 45.0],
+                    "text": clean_text_spans(para),
+                    "spans": [{"text": para, "size": 10.0, "font": "fallback", "baseline": 118.0}],
+                    "fonts": [],
+                    "avg_size": 10.0,
+                    "page": p_num,
+                })
+        if blocks:
+            pages_data.append({"page": p_num, "width": 595.0, "height": 842.0, "blocks": blocks})
     return pages_data
 
 
@@ -1618,6 +1676,10 @@ def parse_layout(pdf_path, diagnosis_path=None):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Multi-Column Scientific Document Layout Parser")
     parser.add_argument("--pdf", required=True, help="Path to input PDF document")
     parser.add_argument("--diagnosis", default=None, help="Path to pdf_diagnose.py output JSON")
