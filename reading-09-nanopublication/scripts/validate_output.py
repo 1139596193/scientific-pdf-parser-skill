@@ -216,6 +216,42 @@ def validate_output(output_dir, ingest_manifest_path=None, input_dir=None):
             add_err("INVALID_AUDIT_REPORT", f"Failed to parse audit_report.json: {e}")
 
     if status_val == "success":
+        blocker_cats = {
+            "scanned_document_unreadable",
+            "formula_pua_unrecoverable",
+            "audit_high_issues",
+            "unextractable_asset",
+            "source_unreadable",
+            "ocr_unavailable",
+            "missing_evidence",
+        }
+        analytical_cats = {"scientific_conflict", "literature_conflict", "analytical_note"}
+        analytical_ids = {"cross_document_unresolved_conflict", "unresolved_scientific_conflict"}
+        conflicts_list = result_data.get("conflicts") or []
+
+        def _is_blocking_unc(u):
+            sev = str(u.get("severity") or "").strip().lower()
+            if sev not in ("high", "critical"):
+                return False
+            cat = str(u.get("category") or "").strip().lower()
+            uid = str(u.get("uncertainty_id") or u.get("id") or "").strip().lower()
+            code = str(u.get("code") or "").strip().lower()
+            nature = str(u.get("uncertainty_nature") or u.get("nature") or "").strip().lower()
+            if cat in blocker_cats or uid in blocker_cats or code in blocker_cats:
+                return True
+            if nature == "source_or_coverage_blocker":
+                return True
+            if cat in analytical_cats or nature == "analytical_finding":
+                return False
+            if conflicts_list and (
+                cat in analytical_ids
+                or uid in analytical_ids
+                or code in analytical_ids
+                or ("conflict" in cat and any(tok in cat for tok in ("scientific", "literature", "cross_document", "unresolved")))
+            ):
+                return False
+            return True
+
         if aud_data and aud_data.get("severity_counts", {}).get("HIGH", 0) > 0:
             add_err("DISHONEST_SUCCESS_STATUS", "result.json claims status='success' despite HIGH-severity issues in audit_report.json.")
         if any((n.get("provenance") or {}).get("alignment_status") == "QUOTE_NOT_FOUND" for n in nps):
@@ -224,8 +260,8 @@ def validate_output(output_dir, ingest_manifest_path=None, input_dir=None):
             add_err("DISHONEST_SUCCESS_STATUS", "result.json claims status='success' despite not_reported/unanswerable/unverifiable QA.")
         if any(u.get("category") == "scanned_document_unreadable" and u.get("severity") == "high" for u in (result_data.get("uncertainty") or [])):
             add_err("DISHONEST_SUCCESS_STATUS", "result.json claims status='success' despite unreadable scanned PDF uncertainty.")
-        if any(str(u.get("severity") or "").strip().lower() in ("high", "critical") for u in (result_data.get("uncertainty") or [])):
-            add_err("DISHONEST_SUCCESS_STATUS", "result.json claims status='success' despite HIGH/CRITICAL severity uncertainty record(s).")
+        if any(_is_blocking_unc(u) for u in (result_data.get("uncertainty") or [])):
+            add_err("DISHONEST_SUCCESS_STATUS", "result.json claims status='success' despite HIGH/CRITICAL source/coverage blocker uncertainty record(s).")
 
     expected_np_ids = [(n.get("head") or {}).get("nanopub_id", "") for n in nps]
 

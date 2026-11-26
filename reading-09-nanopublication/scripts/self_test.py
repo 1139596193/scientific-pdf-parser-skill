@@ -12,8 +12,10 @@ import csv
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
+from unittest import mock
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(SCRIPT_DIR)
@@ -28,6 +30,7 @@ from pubinfo_extractor import extract_pubinfo_from_index, verify_pubinfo_against
 from evidence_aligner import align_evidence_quote
 from nanopub_assembler import init_work_state, patch_work_state, finalize_work_state, load_relation_vocab
 from nanopub_auditor import audit_work_state
+from nanopub_pipeline import run_bootstrap, run_finish
 from render_deliverables import render_all_deliverables
 from validate_output import validate_output, validate_trig_syntax
 
@@ -55,7 +58,7 @@ def test_01_ast_stdlib_only_top_level_imports():
     local_mods = {
         "pdf_engine", "case_ingestor", "structure_indexer", "entity_guard",
         "pubinfo_extractor", "evidence_aligner", "nanopub_assembler",
-        "nanopub_auditor", "render_deliverables", "validate_output",
+        "nanopub_auditor", "nanopub_pipeline", "render_deliverables", "validate_output",
     }
     stdlib = getattr(sys, "stdlib_module_names", set())
     violations = []
@@ -710,7 +713,7 @@ def test_21_skill_md_cli_contract_consistency():
     for blk in re.findall(r"```bash\s*\n(.*?)```", skill_txt, re.S):
         joined = re.sub(r"\\\s*\n\s*", " ", blk)
         for line in joined.splitlines():
-            m = re.match(r"^\s*python3?\s+-B\s+[^\s]*/scripts/([a-z0-9_]+\.py)(?:\s+(init|patch|finalize))?(.*)$", line.strip())
+            m = re.match(r"^\s*python3?\s+-B\s+[^\s]*/scripts/([a-z0-9_]+\.py)(?:\s+(init|patch|finalize|bootstrap|finish))?(.*)$", line.strip())
             if not m:
                 continue
             s_name, subcmd, rest = m.group(1), m.group(2), m.group(3)
@@ -943,6 +946,353 @@ def test_26_high_uncertainty_honest_partial_and_medium_tolerance():
         assert not ok_bad and any(e["code"] == "DISHONEST_SUCCESS_STATUS" for e in rep_bad["errors"])
 
 
+def test_27_nanopub_pipeline_bootstrap_patch_hotfix_finish():
+    with tempfile.TemporaryDirectory() as tmp:
+        in_d = os.path.join(tmp, "input")
+        wk_d = os.path.join(tmp, "work")
+        out_d = os.path.join(tmp, "output")
+        os.makedirs(in_d, exist_ok=True)
+        with open(os.path.join(in_d, "case.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "case_id": "v2_pipe_case",
+                "research_questions": [{"question_id": "Q1", "question": "What accuracy does AlphaNet achieve?"}],
+            }, f)
+        with open(os.path.join(in_d, "paper.md"), "w", encoding="utf-8") as f:
+            f.write(
+                "# AlphaNet Study\n\n"
+                "## 3. Results\n"
+                "AlphaNet achieves 93.5% accuracy on TestBench (n=1000, p < 0.01).\n"
+                "BetaNet serves as a secondary baseline.\n"
+            )
+
+        boot = run_bootstrap(in_d, wk_d, out_d, max_packet_tokens=2500)
+        assert boot["pipeline_stage"] == "bootstrap"
+        assert boot["early_fallback_written"] is True
+        assert os.path.exists(boot["anchors_compact_path"])
+        assert os.path.exists(os.path.join(out_d, "result.json"))
+        with open(os.path.join(wk_d, "evidence_index.json"), "r", encoding="utf-8") as f:
+            ev_idx = json.load(f)
+        res_anc = next(a for a in ev_idx["anchors"] if "93.5%" in a["text"])
+        bid = res_anc["anchor_id"]
+
+        ws_p = os.path.join(wk_d, "work_state.json")
+        p1 = os.path.join(wk_d, "patch_01.json")
+        with open(p1, "w", encoding="utf-8") as f:
+            json.dump({
+                "nanopublications": [
+                    {
+                        "np_id": "NP-KEEP-BAD",
+                        "doc_id": "D1",
+                        "block_id": bid,
+                        "subject": "AlphaNet",
+                        "predicate": "achieves_metric",
+                        "object": {"label": "TestBench accuracy", "value": 93.5, "unit": "%"},
+                        "statement": "AlphaNet achieves 93.5% accuracy on TestBench.",
+                        "evidence_quote": "Wrong fabricated quote not in block.",
+                    },
+                    {
+                        "np_id": "NP-DROP",
+                        "doc_id": "D1",
+                        "block_id": bid,
+                        "subject": "BetaNet",
+                        "predicate": "acts_as",
+                        "object": "secondary baseline",
+                        "statement": "BetaNet serves as a secondary baseline.",
+                        "evidence_quote": "BetaNet serves as a secondary baseline.",
+                    },
+                ],
+                "qa_answers": [{
+                    "question_id": "Q1",
+                    "question": "What accuracy does AlphaNet achieve?",
+                    "answer_status": "answered",
+                    "answer": "AlphaNet achieves 93.5% accuracy on TestBench (n=1000, p < 0.01).",
+                    "supporting_nanopub_ids": ["NP-KEEP-BAD"],
+                }],
+            }, f)
+        patch_work_state(ws_p, p1, os.path.join(wk_d, "evidence_index.json"))
+
+        # Hotfix: replace NP-KEEP-BAD via replaces_id and delete NP-DROP via remove_np_ids
+        p2 = os.path.join(wk_d, "patch_02.json")
+        with open(p2, "w", encoding="utf-8") as f:
+            json.dump({
+                "nanopublications": [{
+                    "np_id": "NP-FIXED",
+                    "replaces_id": "NP-KEEP-BAD",
+                    "doc_id": "D1",
+                    "block_id": bid,
+                    "subject": "AlphaNet",
+                    "predicate": "achieves_metric",
+                    "object": {"label": "TestBench accuracy", "value": 93.5, "unit": "%"},
+                    "qualifiers": {"population_or_dataset": "TestBench", "sample_size": "n=1000", "statistics": "p < 0.01"},
+                    "statement": "AlphaNet achieves 93.5% accuracy on TestBench (n=1000, p < 0.01).",
+                    "evidence_quote": "AlphaNet achieves 93.5% accuracy on TestBench (n=1000, p < 0.01).",
+                    "evidence_type": "direct_empirical",
+                }],
+                "remove_np_ids": ["NP-DROP"],
+            }, f)
+        patch_work_state(ws_p, p2, os.path.join(wk_d, "evidence_index.json"))
+
+        dash, val_ok = run_finish(wk_d, out_d)
+        assert val_ok, f"run_finish validation failed: {dash}"
+        assert dash["status"] == "success" and dash["canonical_np_count"] == 1
+        assert dash["top_high_issues"] == []
+        with open(os.path.join(out_d, "result.json"), "r", encoding="utf-8") as f:
+            res = json.load(f)
+        assert len(res["nanopublications"]) == 1
+        assert res["nanopublications"][0]["provenance"]["alignment_status"] == "EXACT_MATCH"
+        assert "NP-DROP" not in [n["head"]["nanopub_id"] for n in res["nanopublications"]]
+
+
+def test_28_scanned_pdf_auto_render_and_mock_ocr_e2e():
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz
+
+    with tempfile.TemporaryDirectory() as tmp:
+        in_d = os.path.join(tmp, "input")
+        wk_ocr = os.path.join(tmp, "work_ocr")
+        out_ocr = os.path.join(tmp, "out_ocr")
+        wk_noocr = os.path.join(tmp, "work_noocr")
+        out_noocr = os.path.join(tmp, "out_noocr")
+        os.makedirs(in_d, exist_ok=True)
+        with open(os.path.join(in_d, "case.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "case_id": "scanned_ocr_e2e",
+                "research_questions": [{"question_id": "Q1", "question": "What accuracy does Model Z achieve?"}],
+            }, f)
+
+        # Build genuine blank/image-only 1-page PDF (no text layer, white image embedded)
+        pdf_path = os.path.join(in_d, "scan.pdf")
+        pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 200, 260), False)
+        pix.clear_with(245)
+        img_bytes = pix.tobytes("png")
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        page.insert_image(fitz.Rect(20, 20, 575, 820), stream=img_bytes)
+        doc.save(pdf_path)
+        doc.close()
+
+        # Part A: Mock OCR returns realistic OCR text
+        with mock.patch(
+            "pdf_engine.table_formula_ocr.run_ocr_on_image",
+            return_value=("Table 1 shows Model Z achieves 94.2% accuracy on Benchmark K.", 0.88),
+        ):
+            boot_ocr = run_bootstrap(in_d, wk_ocr, out_ocr)
+            png_expected = os.path.join(wk_ocr, "rendered_pages", "D1_p001.png")
+            assert os.path.exists(png_expected), f"Auto rendered PNG missing: {png_expected}"
+            doc0 = boot_ocr["documents"][0]
+            assert len(doc0["rendered_pages"]) >= 1 and 1 in doc0["ocr_pages"]
+            with open(os.path.join(wk_ocr, "evidence_index.json"), "r", encoding="utf-8") as f:
+                ev = json.load(f)
+            rps = (ev.get("artifacts") or {}).get("rendered_pages") or []
+            assert any(r.get("page") == 1 and os.path.exists(r.get("png_path", "")) for r in rps)
+            ocr_anc = next(a for a in ev["anchors"] if a.get("extraction_method") == "ocr_tesseract")
+            assert ocr_anc.get("ocr_engine") and ocr_anc.get("ocr_warning")
+            with open(os.path.join(wk_ocr, "anchors_compact.txt"), "r", encoding="utf-8") as f:
+                compact_txt = f.read()
+            assert "src=ocr" in compact_txt
+
+            p1 = os.path.join(wk_ocr, "patch_ocr.json")
+            with open(p1, "w", encoding="utf-8") as f:
+                json.dump({
+                    "nanopublications": [{
+                        "np_id": "NP-OCR-1",
+                        "doc_id": "D1",
+                        "block_id": ocr_anc["anchor_id"],
+                        "subject": "Model Z",
+                        "predicate": "achieves_metric",
+                        "object": {"label": "Benchmark K accuracy", "value": 94.2, "unit": "%"},
+                        "statement": "Model Z achieves 94.2% accuracy on Benchmark K.",
+                        "evidence_quote": "Model Z achieves 94.2% accuracy on Benchmark K.",
+                        "evidence_type": "direct_empirical",
+                    }],
+                    "qa_answers": [{
+                        "question_id": "Q1",
+                        "question": "What accuracy does Model Z achieve?",
+                        "answer_status": "answered",
+                        "answer": "OCR extraction indicates Model Z achieves 94.2% accuracy on Benchmark K.",
+                        "supporting_nanopub_ids": ["NP-OCR-1"],
+                    }],
+                }, f)
+            patch_work_state(os.path.join(wk_ocr, "work_state.json"), p1, os.path.join(wk_ocr, "evidence_index.json"))
+            dash_ocr, val_ocr = run_finish(wk_ocr, out_ocr)
+            assert val_ocr, f"OCR E2E validation failed: {dash_ocr}"
+
+        # Part B: Without OCR available -> PNG rendered + honest high scanned_document_unreadable
+        with mock.patch("pdf_engine.table_formula_ocr.run_ocr_on_image", return_value=("", 0.0)):
+            boot_no = run_bootstrap(in_d, wk_noocr, out_noocr)
+            assert len(boot_no["documents"][0]["rendered_pages"]) >= 1
+            assert os.path.exists(os.path.join(wk_noocr, "rendered_pages", "D1_p001.png"))
+            with open(os.path.join(out_noocr, "result.json"), "r", encoding="utf-8") as f:
+                r_no = json.load(f)
+            assert r_no["status"] in ("partial", "unanswerable")
+            assert any(u.get("category") == "scanned_document_unreadable" and u.get("severity") == "high" for u in r_no["uncertainty"])
+
+
+def test_29_conflict_status_vs_source_blocker_split():
+    anchors = [
+        {"anchor_id": "D1-P1-B001", "doc_id": "D1", "page": 1, "section_role": "front_matter", "block_type": "title", "text": "Study 1 by Li (2024)"},
+        {"anchor_id": "D1-P2-B001", "doc_id": "D1", "page": 2, "section_role": "results", "block_type": "paragraph", "has_quantitative_signals": True, "text": "Agent A increases reaction yield by 15% under 80°C."},
+        {"anchor_id": "D2-P1-B001", "doc_id": "D2", "page": 1, "section_role": "front_matter", "block_type": "title", "text": "Study 2 by Chen (2025)"},
+        {"anchor_id": "D2-P2-B001", "doc_id": "D2", "page": 2, "section_role": "results", "block_type": "paragraph", "has_quantitative_signals": True, "text": "Agent A reduces reaction yield by 4% under 80°C."},
+    ]
+    pub = {
+        "D1": {"doc_id": "D1", "title": "Study 1", "authors": ["Li"], "year": 2024, "doi": None, "arxiv_id": None, "field_sources": {"title": "pdf_text:D1-P1-B001"}},
+        "D2": {"doc_id": "D2", "title": "Study 2", "authors": ["Chen"], "year": 2025, "doi": None, "arxiv_id": None, "field_sources": {"title": "pdf_text:D2-P1-B001"}},
+    }
+    nps = [
+        {
+            "head": {"nanopub_id": "NP-C1", "uri": "urn:nanopub:case:conflict_split_case:NP-C1", "head_graph": "urn:nanopub:case:conflict_split_case:NP-C1#Head", "assertion_graph": "urn:nanopub:case:conflict_split_case:NP-C1#assertion", "provenance_graph": "urn:nanopub:case:conflict_split_case:NP-C1#provenance", "pubinfo_graph": "urn:nanopub:case:conflict_split_case:NP-C1#pubinfo", "schema_version": "nanopub-reading/1.0"},
+            "assertion": {"statement": "Agent A increases reaction yield by 15%.", "subject": {"label": "Agent A"}, "predicate": {"id": "increases", "uri": "http://example.org/increases", "category": "causal"}, "object": {"label": "reaction yield", "value": 15, "unit": "%"}, "polarity": "affirmed", "qualifiers": {"conditions": ["80°C"]}, "scope_completeness": "complete"},
+            "provenance": {"evidence_quote": "Agent A increases reaction yield by 15% under 80°C.", "evidence_type": "direct_empirical", "evidence_tier": "T1_direct_data", "source_attribution": "primary_study_finding", "location": {"doc_id": "D1", "page": 2, "block_id": "D1-P2-B001", "section_role": "results"}, "alignment_status": "EXACT_MATCH", "confidence": 0.9, "confidence_basis": "direct"},
+            "pubinfo": pub["D1"],
+        },
+        {
+            "head": {"nanopub_id": "NP-C2", "uri": "urn:nanopub:case:conflict_split_case:NP-C2", "head_graph": "urn:nanopub:case:conflict_split_case:NP-C2#Head", "assertion_graph": "urn:nanopub:case:conflict_split_case:NP-C2#assertion", "provenance_graph": "urn:nanopub:case:conflict_split_case:NP-C2#provenance", "pubinfo_graph": "urn:nanopub:case:conflict_split_case:NP-C2#pubinfo", "schema_version": "nanopub-reading/1.0"},
+            "assertion": {"statement": "Agent A reduces reaction yield by 4%.", "subject": {"label": "Agent A"}, "predicate": {"id": "decreases", "uri": "http://example.org/decreases", "category": "causal"}, "object": {"label": "reaction yield", "value": 4, "unit": "%"}, "polarity": "affirmed", "qualifiers": {"conditions": ["80°C"]}, "scope_completeness": "complete"},
+            "provenance": {"evidence_quote": "Agent A reduces reaction yield by 4% under 80°C.", "evidence_type": "direct_empirical", "evidence_tier": "T1_direct_data", "source_attribution": "primary_study_finding", "location": {"doc_id": "D2", "page": 2, "block_id": "D2-P2-B001", "section_role": "results"}, "alignment_status": "EXACT_MATCH", "confidence": 0.9, "confidence_basis": "direct"},
+            "pubinfo": pub["D2"],
+        },
+    ]
+    qas = [{
+        "question_id": "Q1",
+        "question": "What is the effect of Agent A on reaction yield?",
+        "answer_status": "answered",
+        "answer": "Conflicting primary findings: Study 1 (D1) reports +15%, whereas Study 2 (D2) reports -4%.",
+        "supporting_nanopub_ids": ["NP-C1", "NP-C2"],
+    }]
+    conflicts = [{
+        "conflict_id": "CONF-1",
+        "conflict_type": "cross_document_contradiction",
+        "np_ids": ["NP-C1", "NP-C2"],
+        "description": "D1 (+15%) and D2 (-4%) disagree on Agent A yield effect under 80°C.",
+        "resolution_status": "unresolved_reported",
+    }]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out_ok = os.path.join(tmp, "out_conflict_ok")
+        out_blk = os.path.join(tmp, "out_blocker")
+        man_p = os.path.join(tmp, "manifest.json")
+        with open(man_p, "w", encoding="utf-8") as f:
+            json.dump({"case_id": "conflict_split_case", "research_questions": [{"question_id": "Q1", "question": "Effect?"}]}, f)
+
+        # Case A: Clean sources + answered QA + analytical scientific_conflict -> status="success"
+        ws_ok = _make_clean_work_state("conflict_split_case", anchors, pub, nps, qas=qas, conflicts=conflicts)
+        ws_ok["uncertainty"] = [{
+            "uncertainty_id": "cross_document_unresolved_conflict",
+            "category": "scientific_conflict",
+            "uncertainty_nature": "analytical_finding",
+            "severity": "high",
+            "doc_id": None,
+            "pages": [],
+            "message": "Genuine cross-document disagreement between D1 (+15%) and D2 (-4%).",
+        }]
+        aud_ok = audit_work_state(ws_ok, {"case_id": "conflict_split_case", "anchors": anchors, "documents": list(pub.values())})
+        res_ok = render_all_deliverables(ws_ok, aud_ok, out_ok)
+        assert res_ok["status"] == "success", f"Expected status='success' for scientific_conflict, got {res_ok['status']}"
+        ok1, rep1 = validate_output(out_ok, ingest_manifest_path=man_p)
+        assert ok1, f"Clean scientific_conflict failed validation: {rep1}"
+
+        # Case B: Source/coverage blocker -> status="partial", and tampering triggers DISHONEST_SUCCESS_STATUS
+        ws_blk = _make_clean_work_state("conflict_split_case", anchors, pub, nps, qas=qas, conflicts=[])
+        ws_blk["uncertainty"] = [{
+            "uncertainty_id": "UNC-PUA-1",
+            "category": "formula_pua_unrecoverable",
+            "severity": "high",
+            "doc_id": "D1",
+            "pages": [3],
+            "message": "Equation 3 contains unrecoverable PUA glyphs.",
+        }]
+        aud_blk = audit_work_state(ws_blk, {"case_id": "conflict_split_case", "anchors": anchors, "documents": list(pub.values())})
+        res_blk = render_all_deliverables(ws_blk, aud_blk, out_blk)
+        assert res_blk["status"] == "partial", f"Expected status='partial' for blocker, got {res_blk['status']}"
+        ok2, rep2 = validate_output(out_blk, ingest_manifest_path=man_p)
+        assert ok2, f"Blocker partial output failed validation: {rep2}"
+
+        tamp = dict(res_blk)
+        tamp["status"] = "success"
+        with open(os.path.join(out_blk, "result.json"), "w", encoding="utf-8") as f:
+            json.dump(tamp, f)
+        ok_bad, rep_bad = validate_output(out_blk, ingest_manifest_path=man_p)
+        assert not ok_bad and any(e["code"] == "DISHONEST_SUCCESS_STATUS" for e in rep_bad["errors"])
+
+
+def test_30_skill_md_pipeline_and_size_budget():
+    skill_path = os.path.join(BASE_DIR, "SKILL.md")
+    skill_size = os.path.getsize(skill_path)
+    assert skill_size <= 12288, f"SKILL.md exceeds 12KB ({skill_size} bytes)"
+    with open(skill_path, "r", encoding="utf-8") as f:
+        stxt = f.read()
+    assert "nanopub_pipeline.py bootstrap" in stxt
+    assert "nanopub_pipeline.py finish" in stxt
+
+    total_files = 0
+    total_bytes = 0
+    for root, dirs, files in os.walk(BASE_DIR):
+        assert "__pycache__" not in dirs, f"Forbidden __pycache__ in {root}"
+        for fn in files:
+            assert not fn.endswith(".pyc"), f"Forbidden .pyc file {fn}"
+            fp = os.path.join(root, fn)
+            total_files += 1
+            total_bytes += os.path.getsize(fp)
+    assert total_files <= 30, f"outputs/ file count {total_files} exceeds 30"
+    assert total_bytes <= 1048576, f"outputs/ total bytes {total_bytes} exceeds 1MB"
+
+
+def test_31_research_questions_no_task_md_instruction_pollution():
+    # Case A: authoritative case.json questions + 10 numbered delivery/format instructions in task.md
+    case_with_qs = {
+        "case_id": "rq_isolation_test",
+        "questions": [
+            {"question_id": "Q1", "question": "What upper bound holds for d=2?"},
+            {"question_id": "Q2", "question": "What accuracy is achieved on IBM hardware?"},
+            {"question_id": "Q3", "question": "How do Table 3 metrics compare at n=10?"},
+            {"question_id": "Q4", "question": "What is the two-qubit gate fidelity?"},
+        ],
+    }
+    task_md_noisy = (
+        "# Case 01: 科研阅读问答与 Nanopublication 抽取任务\n\n"
+        "请完成以下任务：\n\n"
+        "1. **原子断言抽取（Nanopublications）**：\n"
+        "   - 将论文结论拆分为独立原子断言。\n"
+        "   - 每条断言必须绑定最小充分逐字引文。\n"
+        "   - 明确区分一手发现与二手引用。\n"
+        "2. **基于证据的科研问答（Grounded QA）**：\n"
+        "   - 逐一回答 `case.json` 中的 4 个问题。\n"
+        "   - 对原文未报告的问题诚实标注。\n"
+        "3. **来源元数据与可机读交付**：\n"
+        "   - 完整阅读 `input/task.md` 与 `paper.pdf`，缺失字段保持 `null`。\n"
+        "   - 严格按照 `case.json` 的 `output_contract` 写入 Output 目录并同步导出 JSON-LD、TriG、CSV。\n"
+        "   - Do not modify files in input/ or SKILL.md.\n"
+    )
+    extracted = extract_research_questions(case_with_qs, task_md_noisy)
+    assert len(extracted) == 4, f"Expected strictly 4 questions, got {len(extracted)}: {extracted}"
+    assert [q["question_id"] for q in extracted] == ["Q1", "Q2", "Q3", "Q4"]
+
+    # Case B: case.json with explicit questions + one genuine new Q5: interrogative in task.md
+    extracted_sup = extract_research_questions(
+        case_with_qs,
+        task_md_noisy + "\nQ5: Which ablation experiment degrades under depolarizing noise?\n",
+    )
+    assert [q["question_id"] for q in extracted_sup] == ["Q1", "Q2", "Q3", "Q4", "Q5"]
+
+    # Case C: no case.json questions -> extract only genuine questions from task.md, ignore delivery instructions
+    task_md_only = (
+        "# Workflow Instructions\n"
+        "1. 完整阅读 `input/paper.pdf`，禁止修改输入目录。\n"
+        "2. 严格按照 `output_contract` 写入 Output 目录，输出必须包含 `result.json`、`nanopubs.trig`、`nanopubs.csv`。\n\n"
+        "## 待回答问题\n"
+        "1. Does entanglement amplification scale monotonically with dimension d?\n"
+        "2. 系统在物理硬件上的实测准确率是多少？\n"
+        "3. 禁止推测或补造未报告的 DOI 与年份。\n"
+    )
+    extracted_only = extract_research_questions({}, task_md_only)
+    assert len(extracted_only) == 2, f"Expected 2 real questions only, got {len(extracted_only)}: {extracted_only}"
+    assert "Does entanglement amplification scale monotonically with dimension d?" == extracted_only[0]["question"]
+    assert "系统在物理硬件上的实测准确率是多少？" == extracted_only[1]["question"]
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -976,6 +1326,11 @@ def main():
         test_24_anchors_compact_txt_generation,
         test_25_changes_and_checklist_temp_id_cleanup,
         test_26_high_uncertainty_honest_partial_and_medium_tolerance,
+        test_27_nanopub_pipeline_bootstrap_patch_hotfix_finish,
+        test_28_scanned_pdf_auto_render_and_mock_ocr_e2e,
+        test_29_conflict_status_vs_source_blocker_split,
+        test_30_skill_md_pipeline_and_size_budget,
+        test_31_research_questions_no_task_md_instruction_pollution,
     ]
 
     passed = 0

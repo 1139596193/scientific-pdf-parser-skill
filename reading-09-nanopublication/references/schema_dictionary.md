@@ -57,7 +57,8 @@
 | `evidence_tier` | enum | 必填 | `T1_direct_data` \| `T2_table_figure` \| `T3_methods_or_text` \| `T4_abstract_summary` \| `T5_indirect_inference` \| `T6_secondary_citation` \| `T7_unverified`。 |
 | `source_attribution` | enum | 必填 | `primary_study_finding` \| `cited_prior_work` \| `ambiguous`。 |
 | `location` | object | 必填 | `{"doc_id": string, "page": int, "printed_page": string, "block_id": string, "matched_block_ids": [string], "section_id": string, "section_title": string, "section_role": string, "char_start": int\|null, "char_end": int\|null, "referenced_assets": [string]}`。 |
-| `alignment_status` | enum | 必填 | `EXACT_MATCH` \| `NORMALIZED_MATCH` \| `CROSS_BLOCK_MATCH` \| `FUZZY_PARTIAL` \| `QUOTE_NOT_FOUND`。 |
+| `provenance.alignment_status` / `alignment_status` | enum | 必填 | `EXACT_MATCH` \| `NORMALIZED_MATCH` \| `CROSS_BLOCK_MATCH` \| `FUZZY_PARTIAL` \| `QUOTE_NOT_FOUND`。 |
+| `extraction_method` | enum | 可选 | `native`（默认原生文本） \| `ocr_tesseract`（由 `pytesseract` / CLI `tesseract` 提取） \| `ocr_unavailable`（扫描件无可用文本层）。OCR 产物在 `anchors` 与 `anchors_compact.txt` 中附带 `src=ocr`、`ocr_engine` 及 `rendered_page_png`（`<work_dir>/rendered_pages/{doc_id}_p{page:03d}.png`）。 |
 | `confidence` | number | 必填 | `[0.0, 1.0]` 区间数值置信度。 |
 | `confidence_basis` | string | 必填 | 可复现的置信度依据（说明为何为该分值，如直接实验数据+精确对齐+完整统计显著性）。 |
 
@@ -96,5 +97,7 @@
 
 ## 4. 冲突与不确定性结构（`conflicts[]` / `uncertainty[]`）
 
-- **`conflicts[]`**：`{"conflict_id", "conflict_type" ("internal_self_contradiction" | "cross_document_contradiction" | "claim_vs_evidence_mismatch"), "nanopub_ids": [string], "description": string, "evidence_locations": [...], "resolution_status": "unresolved_reported" | "scoped_by_condition"}`
-- **`uncertainty[]`**：`{"uncertainty_id", "category" ("missing_pubinfo" | "scanned_unreadable" | "garbled_fonts" | "visual_table_figure_needed" | "unreported_in_source" | "secondary_citation_only" | "quote_alignment_warning"), "severity": "high" | "medium" | "low", "doc_id": string|null, "pages": [int], "message": string}`
+- **`conflicts[]`**：`{"conflict_id", "conflict_type" ("internal_self_contradiction" | "cross_document_contradiction" | "quantitative_conflict" | "claim_vs_evidence_mismatch"), "nanopub_ids": [string], "description": string, "evidence_locations": [...], "resolution_status": "unresolved_reported" | "scoped_by_condition"}`
+- **`uncertainty[]`**：`{"uncertainty_id", "category", "uncertainty_nature": "source_or_coverage_blocker" | "analytical_finding", "severity": "high" | "medium" | "low", "doc_id": string|null, "pages": [int], "rendered_pages"?: [string], "message": string}`
+  - **Source/Coverage Blockers**（当 `severity="high"` 时强制将 `status` 降级为 `partial`/`unanswerable`）：`scanned_document_unreadable` \| `formula_pua_unrecoverable` \| `audit_high_issues` \| `unextractable_asset` \| `source_unreadable` \| `ocr_unavailable` \| `missing_evidence`（兼容 `scanned_unreadable` / `garbled_fonts` / `ocr_extracted_text` / `font_garble_or_cid`）。
+  - **Analytical Findings**（科学文献客观分歧或分析性注记，当源文完整且全部 QA 已忠实回答并记录于 `conflicts[]` 时允许 `status="success"`）：`scientific_conflict` \| `literature_conflict` \| `analytical_note`（或配合 `conflicts[]` 使用 `cross_document_unresolved_conflict` / `unresolved_scientific_conflict`）。

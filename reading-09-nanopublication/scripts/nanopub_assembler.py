@@ -654,15 +654,59 @@ def patch_work_state(work_state_path, patch_json_path, structure_index_path=None
 
     existing_by_id = {np["head"]["nanopub_id"]: np for np in state.get("nanopublications", [])}
     id_redirects = state.setdefault("id_redirects", {})
-    added_cnt, updated_cnt = 0, 0
+    changes = state.setdefault("changes", [])
+    added_cnt, updated_cnt, removed_cnt, replaced_cnt = 0, 0, 0, 0
+
+    def _resolve_existing_key(raw_key):
+        curr = str(raw_key)
+        for _ in range(6):
+            if curr in existing_by_id:
+                return curr
+            if curr in id_redirects and id_redirects[curr] != curr:
+                curr = id_redirects[curr]
+            else:
+                break
+        return curr if curr in existing_by_id else None
+
+    for rem_id in patch_data.get("remove_np_ids", []):
+        resolved_k = _resolve_existing_key(rem_id)
+        if resolved_k and resolved_k in existing_by_id:
+            existing_by_id.pop(resolved_k, None)
+            removed_cnt += 1
+            changes.append({
+                "step": "patch_remove",
+                "timestamp": _utc_now(),
+                "removed_id": resolved_k,
+                "note": f"Removed draft assertion '{resolved_k}' via remove_np_ids.",
+            })
 
     for raw_np in patch_data.get("nanopublications", []):
+        replaces_id = raw_np.get("replaces_id")
+        old_k = None
+        if replaces_id:
+            old_k = _resolve_existing_key(replaces_id)
+            if old_k and old_k in existing_by_id:
+                existing_by_id.pop(old_k, None)
+
         c_np, raw_id = _canonicalize_incoming_nanopub(
             raw_np, anchors, anchor_by_id, windows, pub_by_doc, vocab_by_id, alias_map, case_id
         )
         tid = c_np["head"]["nanopub_id"]
         if raw_id and raw_id != tid:
             id_redirects[str(raw_id)] = tid
+        if old_k and old_k != tid:
+            id_redirects[str(old_k)] = tid
+        if replaces_id:
+            id_redirects[str(replaces_id)] = tid
+            if replaces_id != tid:
+                replaced_cnt += 1
+                changes.append({
+                    "step": "patch_replace",
+                    "timestamp": _utc_now(),
+                    "from_id": str(replaces_id),
+                    "to_id": tid,
+                    "note": f"Replaced draft assertion '{replaces_id}' with '{tid}'.",
+                })
 
         if tid in existing_by_id:
             old_np = existing_by_id[tid]
@@ -722,13 +766,20 @@ def patch_work_state(work_state_path, patch_json_path, structure_index_path=None
     state["changes"].append({
         "step": "patch",
         "timestamp": _utc_now(),
-        "note": f"Patched +{added_cnt} new, {updated_cnt} merged nanopubs; total={len(state['nanopublications'])}, qa={len(state['qa_answers'])}.",
+        "note": (
+            f"Patched +{added_cnt} new, {updated_cnt} merged, "
+            f"{replaced_cnt} replaced, {removed_cnt} removed nanopubs; "
+            f"total={len(state['nanopublications'])}, qa={len(state['qa_answers'])}."
+        ),
     })
 
     with open(work_state_path, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
 
-    print(f"[nanopub_assembler:patch] +{added_cnt} new, {updated_cnt} merged -> total={len(state['nanopublications'])}")
+    print(
+        f"[nanopub_assembler:patch] +{added_cnt} new, {updated_cnt} merged, "
+        f"{replaced_cnt} replaced, {removed_cnt} removed -> total={len(state['nanopublications'])}"
+    )
     return state
 
 

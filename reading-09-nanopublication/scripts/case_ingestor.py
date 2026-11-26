@@ -23,20 +23,36 @@ if SCRIPT_DIR not in sys.path:
 try:
     from pdf_engine.pdf_diagnose import diagnose_pdf, calculate_garbled_metrics
     from pdf_engine.layout_parser import parse_layout, STANDALONE_HEADINGS
-    from pdf_engine.table_formula_ocr import process_elements, render_page_crop_fitz, run_ocr_on_image
+    from pdf_engine.table_formula_ocr import (
+        process_elements,
+        render_page_crop_fitz,
+        render_page_png,
+        run_ocr_on_image,
+        run_ocr_on_image_detailed,
+    )
 except ImportError:
     try:
         from .pdf_engine.pdf_diagnose import diagnose_pdf, calculate_garbled_metrics
         from .pdf_engine.layout_parser import parse_layout, STANDALONE_HEADINGS
-        from .pdf_engine.table_formula_ocr import process_elements, render_page_crop_fitz, run_ocr_on_image
+        from .pdf_engine.table_formula_ocr import (
+            process_elements,
+            render_page_crop_fitz,
+            render_page_png,
+            run_ocr_on_image,
+            run_ocr_on_image_detailed,
+        )
     except Exception:
         diagnose_pdf = None
         calculate_garbled_metrics = None
         parse_layout = None
         process_elements = None
         render_page_crop_fitz = None
+        render_page_png = None
         run_ocr_on_image = None
+        run_ocr_on_image_detailed = None
         STANDALONE_HEADINGS = set()
+
+_ORIG_CASE_RUN_OCR = run_ocr_on_image
 
 
 # ----------------------------------------------------------------------
@@ -252,51 +268,233 @@ def _infer_bold_from_block(block):
     return False
 
 
-def attempt_scanned_page_ocr(pdf_path, page_num, crops_dir, printed_page, doc_id="D1"):
-    """
-    Attempt full-page OCR via fitz render + pytesseract/tesseract CLI.
-    Returns (extracted_text, confidence) or ("", 0.0) if unavailable or garbled.
-    """
-    if not render_page_crop_fitz or not run_ocr_on_image:
-        return "", 0.0
+def _invoke_ocr_hook(image_path, lang):
+    """Call case_ingestor.run_ocr_on_image if monkeypatched, else detailed engine-aware OCR."""
+    if run_ocr_on_image is not None and run_ocr_on_image is not _ORIG_CASE_RUN_OCR:
+        res = run_ocr_on_image(image_path, lang=lang)
+        if isinstance(res, tuple) and len(res) >= 3:
+            txt = str(res[0] or "").strip()
+            return txt, float(res[1] or 0.0), str(res[2] or ("tesseract_cli" if txt else ""))
+        if isinstance(res, tuple) and len(res) >= 2:
+            txt = str(res[0] or "").strip()
+            return txt, float(res[1] or 0.0), ("tesseract_cli" if txt else "")
+        return "", 0.0, ""
+    if run_ocr_on_image_detailed is not None:
+        return run_ocr_on_image_detailed(image_path, lang=lang)
+    if run_ocr_on_image is not None:
+        txt, conf = run_ocr_on_image(image_path, lang=lang)
+        txt_s = str(txt or "").strip()
+        return txt_s, float(conf or 0.0), ("tesseract_cli" if txt_s else "")
+    return "", 0.0, ""
 
-    try:
+
+def attempt_scanned_page_ocr_details(
+    pdf_path,
+    page_num,
+    crops_dir,
+    printed_page,
+    doc_id="D1",
+    rendered_pages_dir=None,
+    dpi=220,
+):
+    """
+    Render full PDF page to PNG (pymupdf -> pdftoppm fallback) and attempt OCR
+    (chi_sim+eng -> eng). Returns dict with text, confidence, engine, png_path, png_ok.
+    """
+    out_dir = rendered_pages_dir or crops_dir
+    os.makedirs(out_dir, exist_ok=True)
+    if rendered_pages_dir:
+        out_png = os.path.join(rendered_pages_dir, f"{doc_id}_p{page_num:03d}.png")
+    else:
+        out_png = os.path.join(crops_dir, f"{doc_id}_ocr_page_{page_num}.png")
+
+    png_ok = False
+    if render_page_png is not None:
+        png_ok = bool(render_page_png(pdf_path, page_num, out_png, dpi=dpi))
+    if not png_ok and render_page_crop_fitz is not None:
         try:
-            import pymupdf as fitz
-        except ImportError:
-            import fitz
-        doc = fitz.open(pdf_path)
-        rect = doc[page_num - 1].rect
-        bbox = [0, 0, float(rect.width), float(rect.height)]
-        doc.close()
-    except Exception:
-        bbox = [0, 0, 595, 842]
+            try:
+                import pymupdf as fitz
+            except ImportError:
+                import fitz
+            doc = fitz.open(pdf_path)
+            rect = doc[page_num - 1].rect
+            bbox = [0, 0, float(rect.width), float(rect.height)]
+            doc.close()
+        except Exception:
+            bbox = [0, 0, 595, 842]
+        png_ok = bool(render_page_crop_fitz(pdf_path, page_num, bbox, out_png, dpi=dpi))
 
-    os.makedirs(crops_dir, exist_ok=True)
-    out_png = os.path.join(crops_dir, f"{doc_id}_ocr_page_{page_num}.png")
-    ok = render_page_crop_fitz(pdf_path, page_num, bbox, out_png, dpi=220)
-    if not ok:
-        return "", 0.0
+    if not png_ok:
+        return {
+            "text": "",
+            "confidence": 0.0,
+            "engine": "",
+            "png_path": os.path.abspath(out_png),
+            "png_ok": False,
+        }
 
-    txt, conf = run_ocr_on_image(out_png, lang="eng+chi_sim")
+    txt, conf, engine_name = _invoke_ocr_hook(out_png, lang="chi_sim+eng")
     if not txt:
-        txt, conf = run_ocr_on_image(out_png, lang="eng")
+        txt, conf, engine_name = _invoke_ocr_hook(out_png, lang="eng")
 
-    if not txt or len(txt.strip()) < 30:
-        return "", 0.0
+    if not txt or len(txt.strip()) < 15:
+        return {
+            "text": "",
+            "confidence": 0.0,
+            "engine": engine_name,
+            "png_path": os.path.abspath(out_png),
+            "png_ok": True,
+        }
 
     if calculate_garbled_metrics:
         _, garbled_ratio = calculate_garbled_metrics(txt)
         if garbled_ratio > 0.15:
-            return "", 0.0
+            return {
+                "text": "",
+                "confidence": 0.0,
+                "engine": engine_name,
+                "png_path": os.path.abspath(out_png),
+                "png_ok": True,
+            }
 
-    return txt.strip(), conf
+    return {
+        "text": txt.strip(),
+        "confidence": conf,
+        "engine": engine_name or "tesseract_cli",
+        "png_path": os.path.abspath(out_png),
+        "png_ok": True,
+    }
+
+
+def attempt_scanned_page_ocr(pdf_path, page_num, crops_dir, printed_page, doc_id="D1"):
+    """
+    Attempt full-page OCR via fitz/pdftoppm render + pytesseract/tesseract CLI.
+    Returns (extracted_text, confidence) or ("", 0.0) if unavailable or garbled.
+    """
+    res = attempt_scanned_page_ocr_details(pdf_path, page_num, crops_dir, printed_page, doc_id=doc_id)
+    return res["text"], res["confidence"]
+
+
+def _build_scanned_or_fallback_units_for_page(
+    pdf_path,
+    page_num,
+    p_printed,
+    crops_dir,
+    rendered_pages_dir,
+    doc_id,
+    src_name,
+    unit_seq_start,
+    rendered_pages_map,
+    reason="scanned_or_image_only",
+):
+    """Run full-page render + OCR for one scanned/image page, returning (new_units, next_seq)."""
+    ocr_res = attempt_scanned_page_ocr_details(
+        pdf_path,
+        page_num,
+        crops_dir,
+        p_printed,
+        doc_id=doc_id,
+        rendered_pages_dir=rendered_pages_dir,
+        dpi=220,
+    )
+    png_abs = ocr_res["png_path"] if ocr_res["png_ok"] else None
+    if ocr_res["png_ok"]:
+        rec = rendered_pages_map.setdefault(
+            page_num,
+            {"doc_id": doc_id, "page": page_num, "png_path": ocr_res["png_path"], "reasons": []},
+        )
+        if reason not in rec["reasons"]:
+            rec["reasons"].append(reason)
+
+    out_units = []
+    unit_seq = unit_seq_start
+    ocr_text = ocr_res["text"]
+    ocr_conf = ocr_res["confidence"]
+    ocr_engine = ocr_res["engine"] or "tesseract_cli"
+
+    if ocr_text:
+        paras = [para.strip() for para in re.split(r"\n{2,}", ocr_text) if para.strip()]
+        for para in paras:
+            w_cnt, c_cnt, s_cnt = count_words_and_sentences(para)
+            u_id = f"{doc_id}-U{unit_seq:04d}"
+            unit_seq += 1
+            out_units.append({
+                "unit_id": u_id,
+                "doc_id": doc_id,
+                "source_file": src_name,
+                "unit_type": "paragraph",
+                "raw_block_type": "paragraph",
+                "section_path": f"Page {page_num} (OCR Extracted)",
+                "page_span": [page_num, page_num],
+                "printed_page_span": [p_printed, p_printed],
+                "source_text": para,
+                "word_count": w_cnt,
+                "char_count": c_cnt,
+                "sentence_count": s_cnt,
+                "reading_policy": "analyze",
+                "extraction_method": "ocr_tesseract",
+                "ocr_engine": ocr_engine,
+                "ocr_warning": "OCR-extracted text; verify critical numbers against rendered page image",
+                "rendered_page_png": png_abs,
+                "source_warnings": ["ocr_extracted"],
+                "uncertainty_flag": True,
+                "avg_size": 10.0,
+                "is_bold": False,
+                "fonts": [],
+                "bbox": [0, 0, 595, 842],
+                "column": "full",
+                "evidence_anchors": [{
+                    "page": page_num,
+                    "printed_page": p_printed,
+                    "ocr_confidence": ocr_conf,
+                    "ocr_engine": ocr_engine,
+                    "rendered_page_png": png_abs,
+                }],
+            })
+    else:
+        u_id = f"{doc_id}-U{unit_seq:04d}"
+        unit_seq += 1
+        img_hint = f" Rendered page PNG saved at: {png_abs}" if png_abs else ""
+        out_units.append({
+            "unit_id": u_id,
+            "doc_id": doc_id,
+            "source_file": src_name,
+            "unit_type": "unextractable_asset",
+            "raw_block_type": "unextractable_asset",
+            "section_path": f"Page {page_num} (Scanned Image)",
+            "page_span": [page_num, page_num],
+            "printed_page_span": [p_printed, p_printed],
+            "source_text": f"[Scanned page image without native text layer; OCR unavailable or unreadable - requires manual visual inspection.{img_hint}]",
+            "word_count": 0,
+            "char_count": 0,
+            "sentence_count": 0,
+            "reading_policy": "manual_review_asset",
+            "extraction_method": "ocr_unavailable",
+            "rendered_page_png": png_abs,
+            "source_warnings": ["native_text_layer_missing", "ocr_unavailable_or_failed"],
+            "uncertainty_flag": True,
+            "avg_size": 0.0,
+            "is_bold": False,
+            "fonts": [],
+            "bbox": [0, 0, 595, 842],
+            "column": "full",
+            "evidence_anchors": [{
+                "page": page_num,
+                "printed_page": p_printed,
+                "bbox": [0, 0, 595, 842],
+                "rendered_page_png": png_abs,
+            }],
+        })
+    return out_units, unit_seq
 
 
 def extract_units_from_pdf(pdf_path, work_dir, scope=None, doc_id="D1", rel_path=None):
-    """Process PDF into standardized reading units with layout signals and OCR fallback."""
+    """Process PDF into standardized reading units with layout signals, auto PNG rendering, and OCR fallback."""
     units = []
     crops_dir = os.path.join(work_dir, "crops")
+    rendered_pages_dir = os.path.join(work_dir, "rendered_pages")
+    rendered_pages_map = {}
     include_refs = scope.get("include_references", False) if scope else False
     src_name = rel_path or os.path.basename(pdf_path)
 
@@ -315,7 +513,7 @@ def extract_units_from_pdf(pdf_path, work_dir, scope=None, doc_id="D1", rel_path
 
     blocks = struct_doc.get("blocks", [])
 
-    # Handle Scanned / Image-Only PDFs: Attempt OCR first, gracefully degrade if unavailable/unreadable
+    # Handle Scanned / Image-Only PDFs: Render PNGs + Attempt OCR first, gracefully degrade if unavailable/unreadable
     if not blocks and is_scanned:
         page_count = diagnosis.get("page_count", 1)
         offset = diagnosis.get("printed_page_offset", 0)
@@ -323,62 +521,20 @@ def extract_units_from_pdf(pdf_path, work_dir, scope=None, doc_id="D1", rel_path
 
         for p in range(1, page_count + 1):
             p_printed = str(p + offset)
-            ocr_text, ocr_conf = attempt_scanned_page_ocr(pdf_path, p, crops_dir, p_printed, doc_id=doc_id)
-            if ocr_text:
-                paras = [para.strip() for para in re.split(r"\n{2,}", ocr_text) if para.strip()]
-                for para in paras:
-                    w_cnt, c_cnt, s_cnt = count_words_and_sentences(para)
-                    u_id = f"{doc_id}-U{unit_seq:04d}"
-                    unit_seq += 1
-                    units.append({
-                        "unit_id": u_id,
-                        "doc_id": doc_id,
-                        "source_file": src_name,
-                        "unit_type": "paragraph",
-                        "raw_block_type": "paragraph",
-                        "section_path": f"Page {p} (OCR Extracted)",
-                        "page_span": [p, p],
-                        "printed_page_span": [p_printed, p_printed],
-                        "source_text": para,
-                        "word_count": w_cnt,
-                        "char_count": c_cnt,
-                        "sentence_count": s_cnt,
-                        "reading_policy": "analyze",
-                        "source_warnings": ["ocr_extracted"],
-                        "uncertainty_flag": True,
-                        "avg_size": 10.0,
-                        "is_bold": False,
-                        "fonts": [],
-                        "bbox": [0, 0, 595, 842],
-                        "column": "full",
-                        "evidence_anchors": [{"page": p, "printed_page": p_printed, "ocr_confidence": ocr_conf}],
-                    })
-            else:
-                u_id = f"{doc_id}-U{unit_seq:04d}"
-                unit_seq += 1
-                units.append({
-                    "unit_id": u_id,
-                    "doc_id": doc_id,
-                    "source_file": src_name,
-                    "unit_type": "unextractable_asset",
-                    "raw_block_type": "unextractable_asset",
-                    "section_path": f"Page {p} (Scanned Image)",
-                    "page_span": [p, p],
-                    "printed_page_span": [p_printed, p_printed],
-                    "source_text": "[Scanned page image without native text layer; OCR unavailable or unreadable - requires manual visual inspection]",
-                    "word_count": 0,
-                    "char_count": 0,
-                    "sentence_count": 0,
-                    "reading_policy": "manual_review_asset",
-                    "source_warnings": ["native_text_layer_missing", "ocr_unavailable_or_failed"],
-                    "uncertainty_flag": True,
-                    "avg_size": 0.0,
-                    "is_bold": False,
-                    "fonts": [],
-                    "bbox": [0, 0, 595, 842],
-                    "column": "full",
-                    "evidence_anchors": [{"page": p, "printed_page": p_printed, "bbox": [0, 0, 595, 842]}],
-                })
+            p_units, unit_seq = _build_scanned_or_fallback_units_for_page(
+                pdf_path,
+                p,
+                p_printed,
+                crops_dir,
+                rendered_pages_dir,
+                doc_id,
+                src_name,
+                unit_seq,
+                rendered_pages_map,
+                reason="scanned_or_image_only",
+            )
+            units.extend(p_units)
+        diagnosis["rendered_pages"] = sorted(rendered_pages_map.values(), key=lambda x: x["page"])
         return units, diagnosis, struct_doc
 
     # Process native blocks
@@ -488,6 +644,80 @@ def extract_units_from_pdf(pdf_path, work_dir, scope=None, doc_id="D1", rel_path
             }]),
         })
 
+    # Hybrid scanned pages + garbled / unextracted visual-asset auto PNG rendering
+    offset = diagnosis.get("printed_page_offset", 0)
+    pages_with_native = {
+        p
+        for u in units
+        if u.get("unit_type") != "unextractable_asset"
+        for p in range(u["page_span"][0], u["page_span"][-1] + 1)
+    }
+    units_by_page = collections.defaultdict(list)
+    for u in units:
+        units_by_page[u["page_span"][0]].append(u)
+
+    added_hybrid = False
+    for dp in diagnosis.get("pages", []):
+        p_num = dp.get("page_num")
+        if not p_num:
+            continue
+        route = dp.get("recommended_route", "")
+        if route == "scanned_or_image_only" and p_num not in pages_with_native:
+            p_printed = str(p_num + offset)
+            p_units, unit_seq = _build_scanned_or_fallback_units_for_page(
+                pdf_path,
+                p_num,
+                p_printed,
+                crops_dir,
+                rendered_pages_dir,
+                doc_id,
+                src_name,
+                unit_seq,
+                rendered_pages_map,
+                reason="scanned_or_image_only",
+            )
+            units.extend(p_units)
+            units_by_page[p_num].extend(p_units)
+            added_hybrid = True
+            continue
+
+        page_units = units_by_page.get(p_num, [])
+        reasons = []
+        if route in ("scanned_or_image_only", "ocr_recommended"):
+            reasons.append(route)
+        if dp.get("garbled_ratio", 0.0) >= 0.05 or any(
+            "potential_font_garble" in u.get("source_warnings", []) for u in page_units
+        ):
+            reasons.append("font_garble_or_cid")
+        if any(u.get("unit_type") == "unextractable_asset" for u in page_units):
+            reasons.append("unextractable_asset")
+        has_fig_or_tab_cap = any(u.get("unit_type") in ("figure_caption", "table_caption") for u in page_units)
+        has_tab_body = any(u.get("unit_type") == "table_content" for u in page_units)
+        if (
+            (dp.get("image_coverage", 0.0) >= 0.25 and dp.get("char_count", 0) < 200)
+            or (has_fig_or_tab_cap and not has_tab_body and dp.get("image_coverage", 0.0) >= 0.15)
+        ):
+            reasons.append("unextracted_visual_asset")
+
+        if reasons and render_page_png is not None:
+            out_png = os.path.join(rendered_pages_dir, f"{doc_id}_p{p_num:03d}.png")
+            png_ok = os.path.exists(out_png) or bool(render_page_png(pdf_path, p_num, out_png, dpi=220))
+            if png_ok:
+                abs_png = os.path.abspath(out_png)
+                rec = rendered_pages_map.setdefault(
+                    p_num,
+                    {"doc_id": doc_id, "page": p_num, "png_path": abs_png, "reasons": []},
+                )
+                for r in reasons:
+                    if r not in rec["reasons"]:
+                        rec["reasons"].append(r)
+                for u in page_units:
+                    if not u.get("rendered_page_png"):
+                        u["rendered_page_png"] = abs_png
+
+    if added_hybrid:
+        units.sort(key=lambda u: (u["page_span"][0], 0 if u.get("unit_type") != "unextractable_asset" else 1))
+
     if not units:
         p_cnt = max(1, diagnosis.get("page_count", 1))
         units.append({
@@ -514,6 +744,7 @@ def extract_units_from_pdf(pdf_path, work_dir, scope=None, doc_id="D1", rel_path
             "evidence_anchors": [{"page": 1, "printed_page": "1", "bbox": [0, 0, 595, 842]}],
         })
 
+    diagnosis["rendered_pages"] = sorted(rendered_pages_map.values(), key=lambda x: x["page"])
     return units, diagnosis, struct_doc
 
 
@@ -1359,13 +1590,30 @@ def _extract_pdf_doc_metadata(pdf_path):
 
 def extract_research_questions(case_data, task_md_text):
     """
-    Deterministically extract explicit research questions / queries / prompts
-    from case.json structured fields and task.md numbered/interrogative lines.
+    Deterministically extract explicit research questions / queries / prompts.
+    Priority:
+      1. Authoritative structured questions in case.json (`research_questions`, `questions`,
+         `queries`, `qa_tasks`, `prompts`, `sub_questions`, `qa_questions`, `tasks`).
+         When present, do NOT scrape general numbered bullets from task.md; only supplement
+         explicit `Q<n>:` / `问题<n>:` lines ending with `?`/`？` that are not already included.
+      2. When case.json provides no explicit questions, extract only genuine questions from
+         task.md while filtering out delivery/workflow/format instruction bullets.
     Returns a deduplicated list of {"question_id": "Q1", "question": "...", "source": "..."}.
     """
     questions = []
     seen_norm = set()
     used_ids = set()
+
+    instruction_noise_re = re.compile(
+        r"(?:完整阅读|严格按照|写入\s*Output|输出(?:必须|应)?包含|禁止修改|不得修改|禁止推测|不得推测|"
+        r"交付物|同步导出|中间(?:过程)?文件|must\s+include|do\s+not\s+modify|forbidden\s+to\s+modify|"
+        r"deliverables|output_contract|SKILL\.md|work_state\.json|result\.json|nanopubs\.)",
+        re.I,
+    )
+    q_section_heading_re = re.compile(
+        r"^#{1,6}\s+(?:[\d.]+\s*)?(?:research\s+questions?|questions?|queries|待回答问题|待答问题|科研问题|问题清单|核心问题)\s*[:：]?\s*$",
+        re.I,
+    )
 
     def _add_q(q_text, src, q_id=None):
         txt = re.sub(r"\s+", " ", (q_text or "").strip())
@@ -1388,7 +1636,16 @@ def extract_research_questions(case_data, task_md_text):
         })
 
     if isinstance(case_data, dict):
-        for key in ("research_questions", "questions", "queries", "prompts", "sub_questions", "qa_questions", "tasks"):
+        for key in (
+            "research_questions",
+            "questions",
+            "queries",
+            "qa_tasks",
+            "prompts",
+            "sub_questions",
+            "qa_questions",
+            "tasks",
+        ):
             val = case_data.get(key)
             if isinstance(val, str) and val.strip():
                 _add_q(val, f"case_json:{key}")
@@ -1412,6 +1669,8 @@ def extract_research_questions(case_data, task_md_text):
             if isinstance(val, str) and val.strip():
                 _add_q(val, f"case_json:{key}")
 
+    has_explicit_case_questions = len(questions) > 0
+
     if task_md_text:
         in_q_section = False
         for raw_line in task_md_text.splitlines():
@@ -1419,23 +1678,40 @@ def extract_research_questions(case_data, task_md_text):
             if not line:
                 continue
             if re.match(r"^#{1,6}\s+", line):
-                in_q_section = bool(re.search(r"(?:questions?|queries|科研问题|待答问题|问题清单|问答)", line, re.I))
+                in_q_section = bool(q_section_heading_re.match(line))
                 continue
-            # Explicit Q1/问题1 prefixes
+
+            # Explicit Q1: / 问题1: prefixes
             m_qprefix = re.match(r"^(?:[-*]\s*)?(?:\*\*)?(Q\d+|问题\s*\d+)\s*[:：.\)]\s*(?:\*\*)?\s*(.+)$", line, re.I)
             if m_qprefix:
                 qid_raw = re.sub(r"\s+", "", m_qprefix.group(1))
                 q_body = m_qprefix.group(2).strip()
-                if len(q_body) >= 6:
-                    _add_q(q_body, "task_md:explicit_q", q_id=qid_raw.upper() if qid_raw.lower().startswith("q") else None)
+                is_interrogative = q_body.endswith(("?", "？"))
+                if has_explicit_case_questions:
+                    # Only supplement new explicit Q<n>: / 问题<n>: questions ending in ?/？
+                    has_colon = bool(re.match(r"^(?:[-*]\s*)?(?:\*\*)?(?:Q\d+|问题\s*\d+)\s*[:：]", line, re.I))
+                    if has_colon and is_interrogative and len(q_body) >= 6:
+                        _add_q(q_body, "task_md:explicit_q", q_id=qid_raw.upper() if qid_raw.lower().startswith("q") else None)
+                else:
+                    if len(q_body) >= 6 and (is_interrogative or not instruction_noise_re.search(q_body)):
+                        _add_q(q_body, "task_md:explicit_q", q_id=qid_raw.upper() if qid_raw.lower().startswith("q") else None)
                 continue
-            # Numbered or bulleted interrogative line
+
+            # When case.json already defines the authoritative question set, never scrape generic bullets
+            if has_explicit_case_questions:
+                continue
+
+            # No case.json questions: only accept genuine interrogatives or items inside explicit question headings
             m_item = re.match(r"^(?:[-*]|\d+[.)、])\s+(.+)$", line)
             cand = m_item.group(1).strip() if m_item else line
-            if cand.endswith(("?", "？")) and not cand.startswith(("|", ">", "#")):
-                if len(cand) >= 8 and not re.search(r"(?:评分|score|runtime|budget|harbor)", cand, re.I):
+            if cand.startswith(("|", ">", "#")) or len(cand) < 8:
+                continue
+            is_interrogative = cand.endswith(("?", "？"))
+            is_noise = bool(instruction_noise_re.search(cand))
+            if is_interrogative:
+                if not re.search(r"(?:评分|score|runtime|budget|harbor)", cand, re.I) and (not is_noise or len(cand) >= 15):
                     _add_q(cand, "task_md:interrogative")
-            elif in_q_section and m_item and len(cand) >= 8:
+            elif in_q_section and m_item and not is_noise:
                 _add_q(cand, "task_md:question_section")
 
     return questions
@@ -1593,6 +1869,7 @@ def ingest_case(input_dir, work_dir, single_file=None):
                 "printed_page_offset": diagnosis.get("printed_page_offset", 0),
                 "pages": diagnosis.get("pages", []),
                 "pdf_metadata": pdf_meta,
+                "rendered_pages": diagnosis.get("rendered_pages", []),
             }
         elif ext == ".docx":
             doc_format = "docx"

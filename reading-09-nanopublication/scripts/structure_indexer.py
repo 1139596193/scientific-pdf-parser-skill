@@ -514,7 +514,8 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
         canonical_bt = _normalize_block_type(u_type)
         norm_role = normalize_section_role(target_sec["canonical_role"], unit_type=u_type, zone=target_sec["zone"])
         has_cites, has_quant, ref_assets = extract_block_signals(txt)
-        anchors.append({
+        ext_method = ru.get("extraction_method") or ("ocr_tesseract" if "ocr_extracted" in q_flags else "native")
+        anc_rec = {
             "anchor_id": anchor_id,
             "doc_id": doc_id,
             "source_file": src_file,
@@ -529,6 +530,7 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
             "block_type": canonical_bt,
             "raw_block_type": raw_bt,
             "reading_policy": ru.get("reading_policy", "analyze"),
+            "extraction_method": ext_method,
             "text": txt,
             "word_count": w_cnt,
             "char_count": c_cnt,
@@ -538,7 +540,14 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
             "has_citation_markers": has_cites,
             "has_quantitative_signals": has_quant,
             "referenced_assets": ref_assets,
-        })
+        }
+        if ru.get("ocr_engine"):
+            anc_rec["ocr_engine"] = ru["ocr_engine"]
+        if ru.get("ocr_warning"):
+            anc_rec["ocr_warning"] = ru["ocr_warning"]
+        if ru.get("rendered_page_png"):
+            anc_rec["rendered_page_png"] = ru["rendered_page_png"]
+        anchors.append(anc_rec)
 
     # Build nested section_tree representation
     def _build_tree_node(sec_id):
@@ -734,33 +743,52 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
         if page_words[p] < 20 and p not in unextractable_pages
     ]
 
+    rendered_pages = (
+        doc_meta.get("rendered_pages")
+        or (doc_meta.get("diagnosis_summary") or {}).get("rendered_pages")
+        or []
+    )
+    rendered_by_page = {int(r["page"]): r.get("png_path") for r in rendered_pages if r.get("page") and r.get("png_path")}
+
     uncertainty_records = []
     quality_notices = []
-    if is_scanned:
+    if is_scanned or unextractable_pages or ocr_pages:
         if unextractable_pages:
-            uncertainty_records.append({
+            rec_u = {
                 "doc_id": doc_id,
                 "category": "scanned_document_unreadable",
                 "severity": "high",
                 "pages": sorted(unextractable_pages),
                 "message": f"Document {src_file} appears scanned ({dominant_route}); native text missing and OCR failed/unavailable on pages {sorted(unextractable_pages)}.",
-            })
-        elif ocr_pages:
-            uncertainty_records.append({
+            }
+            rel_pngs = [rendered_by_page[p] for p in sorted(unextractable_pages) if p in rendered_by_page]
+            if rel_pngs:
+                rec_u["rendered_pages"] = rel_pngs
+            uncertainty_records.append(rec_u)
+        if ocr_pages:
+            rec_o = {
                 "doc_id": doc_id,
                 "category": "ocr_extracted_text",
                 "severity": "medium",
                 "pages": sorted(ocr_pages),
-                "message": f"Document {src_file} extracted via OCR on pages {sorted(ocr_pages)}; numeric/formula accuracy requires visual caution.",
-            })
+                "message": f"Document {src_file} extracted via OCR on pages {sorted(ocr_pages)}; verify critical numbers against rendered page image.",
+            }
+            rel_pngs = [rendered_by_page[p] for p in sorted(ocr_pages) if p in rendered_by_page]
+            if rel_pngs:
+                rec_o["rendered_pages"] = rel_pngs
+            uncertainty_records.append(rec_o)
     if garbled_pages:
-        uncertainty_records.append({
+        rec_g = {
             "doc_id": doc_id,
             "category": "font_garble_or_cid",
             "severity": "medium",
             "pages": sorted(garbled_pages),
             "message": f"Potential CID/PUA font garble detected on pages {sorted(garbled_pages)} in {src_file}.",
-        })
+        }
+        rel_pngs = [rendered_by_page[p] for p in sorted(garbled_pages) if p in rendered_by_page]
+        if rel_pngs:
+            rec_g["rendered_pages"] = rel_pngs
+        uncertainty_records.append(rec_g)
     if formula_pua_pages:
         quality_notices.append({
             "doc_id": doc_id,
@@ -807,6 +835,7 @@ def _build_document_index(doc_meta, doc_units, multi_doc=False):
             "ocr_pages": sorted(ocr_pages),
             "unextractable_pages": sorted(unextractable_pages),
             "low_density_pages": low_density_pages,
+            "rendered_pages": rendered_pages,
             "has_references_zone": ref_sec is not None,
         },
         "initial_uncertainty": uncertainty_records,
@@ -1156,11 +1185,17 @@ def index_case(
         if anc.get("referenced_assets"):
             fl_list.append("assets=" + ",".join(anc["referenced_assets"]))
         fl_str = "/".join(fl_list) if fl_list else "none"
+        src_tag = " | src=ocr" if anc.get("extraction_method") == "ocr_tesseract" else ""
         flat_txt = re.sub(r"\s*\n\s*", " ", anc.get("text", "")).strip()
-        compact_lines.append(f"[{did} | {aid} | role={role} | type={bt} | flags={fl_str}] {flat_txt}")
+        compact_lines.append(f"[{did} | {aid} | role={role} | type={bt}{src_tag} | flags={fl_str}] {flat_txt}")
     compact_path = os.path.join(work_abs, "anchors_compact.txt")
     with open(compact_path, "w", encoding="utf-8") as f:
         f.write("\n".join(compact_lines) + ("\n" if compact_lines else ""))
+
+    all_rendered_pages = []
+    for d in documents_meta:
+        rps = d.get("rendered_pages") or (d.get("diagnosis_summary") or {}).get("rendered_pages") or []
+        all_rendered_pages.extend(rps)
 
     # Write evidence_index.json
     evidence_index = {
@@ -1176,11 +1211,13 @@ def index_case(
                 "language": d.get("language"),
                 "page_count": d.get("page_count"),
                 "pdf_metadata": (d.get("diagnosis_summary") or {}).get("pdf_metadata", {}),
+                "rendered_pages": d.get("rendered_pages") or (d.get("diagnosis_summary") or {}).get("rendered_pages") or [],
             }
             for d in documents_meta
         ],
         "artifacts": {
             "anchors_compact_path": compact_path,
+            "rendered_pages": all_rendered_pages,
         },
         "total_anchors": len(all_anchors),
         "block_type_counts": dict(collections.Counter(a["block_type"] for a in all_anchors)),
@@ -1206,6 +1243,8 @@ def index_case(
             "limitation_clues": sum(len(d["limitation_clues"]) for d in all_doc_signals),
             "initial_uncertainties": len(all_uncertainties),
             "quality_notices": len(all_quality_notices),
+            "rendered_pages": len(all_rendered_pages),
+            "ocr_pages": sum(len((d.get("quality_risk") or {}).get("ocr_pages", [])) for d in all_doc_signals),
         },
         "initial_uncertainty": all_uncertainties,
         "quality_notices": all_quality_notices,

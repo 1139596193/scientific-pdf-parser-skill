@@ -172,6 +172,55 @@ def map_contract_field_value(field_name, expected_type, payload):
     return _coerce_value_to_expected_type(mapped, expected_type, field_name, payload)
 
 
+BLOCKER_UNCERTAINTY_CATEGORIES = {
+    "scanned_document_unreadable",
+    "formula_pua_unrecoverable",
+    "audit_high_issues",
+    "unextractable_asset",
+    "source_unreadable",
+    "ocr_unavailable",
+    "missing_evidence",
+}
+
+ANALYTICAL_UNCERTAINTY_CATEGORIES = {
+    "scientific_conflict",
+    "literature_conflict",
+    "analytical_note",
+}
+
+ANALYTICAL_CONFLICT_IDS = {
+    "cross_document_unresolved_conflict",
+    "unresolved_scientific_conflict",
+}
+
+
+def _is_blocking_high_uncertainty(u, conflicts=None):
+    """Distinguish source/coverage blockers (force partial) from analytical scientific findings."""
+    sev = str(u.get("severity") or "").strip().lower()
+    if sev not in ("high", "critical"):
+        return False
+
+    cat = str(u.get("category") or "").strip().lower()
+    uid = str(u.get("uncertainty_id") or u.get("id") or "").strip().lower()
+    code = str(u.get("code") or "").strip().lower()
+    nature = str(u.get("uncertainty_nature") or u.get("nature") or "").strip().lower()
+
+    if cat in BLOCKER_UNCERTAINTY_CATEGORIES or uid in BLOCKER_UNCERTAINTY_CATEGORIES or code in BLOCKER_UNCERTAINTY_CATEGORIES:
+        return True
+    if nature == "source_or_coverage_blocker":
+        return True
+    if cat in ANALYTICAL_UNCERTAINTY_CATEGORIES or nature == "analytical_finding":
+        return False
+    if conflicts and (
+        cat in ANALYTICAL_CONFLICT_IDS
+        or uid in ANALYTICAL_CONFLICT_IDS
+        or code in ANALYTICAL_CONFLICT_IDS
+        or ("conflict" in cat and any(tok in cat for tok in ("scientific", "literature", "cross_document", "unresolved")))
+    ):
+        return False
+    return True
+
+
 def _determine_honest_status(work_state, audit_report, early_partial=False):
     """Enforce honest status downgrade whenever HIGH issues, unreadable inputs, or unverified QAs exist."""
     if early_partial:
@@ -180,6 +229,7 @@ def _determine_honest_status(work_state, audit_report, early_partial=False):
     nps = work_state.get("nanopublications", [])
     qa_list = work_state.get("qa_answers", [])
     unc_list = work_state.get("uncertainty", [])
+    conflicts = work_state.get("conflicts", [])
     sev = (audit_report or {}).get("severity_counts") or {}
     high_cnt = int(sev.get("HIGH", 0))
 
@@ -188,7 +238,7 @@ def _determine_honest_status(work_state, audit_report, early_partial=False):
         for u in unc_list
     )
     has_high_uncertainty = any(
-        str(u.get("severity") or "").strip().lower() in ("high", "critical")
+        _is_blocking_high_uncertainty(u, conflicts=conflicts)
         for u in unc_list
     )
     has_unanswered_or_unverified = any(

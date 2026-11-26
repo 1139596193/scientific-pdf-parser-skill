@@ -251,15 +251,81 @@ def render_page_crop_fitz(pdf_path, page_num, bbox, out_png, dpi=300):
         return False
 
 
-def run_ocr_on_image(image_path, lang="eng"):
-    """Run pytesseract OCR or CLI tesseract fallback."""
+def render_page_png(pdf_path, page_num, out_png, dpi=220):
+    """Render a full PDF page to PNG at the specified DPI (pymupdf first, pdftoppm CLI fallback)."""
+    out_abs = os.path.abspath(out_png)
+    out_dir = os.path.dirname(out_abs)
+    if out_dir and not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+
+    # 1. PyMuPDF / fitz
+    try:
+        try:
+            import pymupdf as fitz
+        except ImportError:
+            import fitz
+        doc = fitz.open(pdf_path)
+        try:
+            if page_num < 1 or page_num > len(doc):
+                return False
+            page = doc[page_num - 1]
+            try:
+                pix = page.get_pixmap(dpi=dpi, alpha=False)
+            except TypeError:
+                zoom = dpi / 72.0
+                pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+            pix.save(out_abs)
+            return os.path.exists(out_abs) and os.path.getsize(out_abs) > 0
+        finally:
+            doc.close()
+    except Exception:
+        pass
+
+    # 2. pdftoppm CLI fallback
+    pdftoppm_bin = shutil.which("pdftoppm")
+    if pdftoppm_bin:
+        try:
+            prefix = out_abs[:-4] if out_abs.lower().endswith(".png") else out_abs
+            res = subprocess.run(
+                [
+                    pdftoppm_bin,
+                    "-png",
+                    "-r",
+                    str(dpi),
+                    "-f",
+                    str(page_num),
+                    "-l",
+                    str(page_num),
+                    "-singlefile",
+                    pdf_path,
+                    prefix,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+            if res.returncode == 0 and os.path.exists(out_abs) and os.path.getsize(out_abs) > 0:
+                return True
+            numbered = f"{prefix}-{page_num}.png"
+            if os.path.exists(numbered) and os.path.getsize(numbered) > 0:
+                os.replace(numbered, out_abs)
+                return True
+        except Exception:
+            pass
+
+    return False
+
+
+def _run_ocr_with_engine(image_path, lang="eng"):
+    """Run pytesseract OCR or CLI tesseract fallback, returning (text, confidence, engine_name)."""
     # 1. Python pytesseract
     try:
         import pytesseract
         from PIL import Image
-        img = Image.open(image_path)
-        txt = pytesseract.image_to_string(img, lang=lang)
-        return txt.strip(), 0.90
+        with Image.open(image_path) as img:
+            txt = pytesseract.image_to_string(img, lang=lang)
+        if txt and txt.strip():
+            return txt.strip(), 0.90, "pytesseract"
     except Exception:
         pass
 
@@ -272,13 +338,39 @@ def run_ocr_on_image(image_path, lang="eng"):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                timeout=15,
+                encoding="utf-8",
+                errors="replace",
+                timeout=20,
             )
-            return res.stdout.strip(), 0.85
+            if res.returncode == 0 and res.stdout and res.stdout.strip():
+                return res.stdout.strip(), 0.85, "tesseract_cli"
         except Exception:
             pass
 
-    return "", 0.0
+    return "", 0.0, ""
+
+
+def run_ocr_on_image(image_path, lang="eng"):
+    """Run pytesseract OCR or CLI tesseract fallback."""
+    txt, conf, _engine = _run_ocr_with_engine(image_path, lang=lang)
+    return txt, conf
+
+
+_ORIG_RUN_OCR_ON_IMAGE = run_ocr_on_image
+
+
+def run_ocr_on_image_detailed(image_path, lang="eng"):
+    """Return (text, confidence, engine_name), respecting monkeypatches on run_ocr_on_image."""
+    if run_ocr_on_image is not _ORIG_RUN_OCR_ON_IMAGE:
+        res = run_ocr_on_image(image_path, lang=lang)
+        if isinstance(res, tuple) and len(res) >= 3:
+            txt = str(res[0] or "").strip()
+            return txt, float(res[1] or 0.0), str(res[2] or ("tesseract_cli" if txt else ""))
+        if isinstance(res, tuple) and len(res) >= 2:
+            txt = str(res[0] or "").strip()
+            return txt, float(res[1] or 0.0), ("tesseract_cli" if txt else "")
+        return "", 0.0, ""
+    return _run_ocr_with_engine(image_path, lang=lang)
 
 
 # ----------------------------------------------------------------------
