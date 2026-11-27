@@ -1,0 +1,110 @@
+{
+  "version": "1.0.0",
+  "description": "13 standard edit_type tags for sentence-level academic language polishing change logs.",
+  "taxonomy": {
+    "grammar": {
+      "zh_label": "语法修正",
+      "en_label": "Grammar Correction",
+      "zh_desc": "主谓一致、时态语态、冠词介词、单复数、句子完整性与基本语法错误修正。",
+      "en_desc": "Subject-verb agreement, tense/voice, articles, prepositions, number, and sentence-boundary grammar fixes.",
+      "default_severity": "HIGH",
+      "preserves_meaning": true
+    },
+    "syntax": {
+      "zh_label": "句法重构",
+      "en_label": "Syntax Restructuring",
+      "zh_desc": "悬垂修饰、长难句切分、从句嵌套梳理及语序调整，不改变命题与限定强度。",
+      "en_desc": "Dangling modifiers, long-sentence splitting, clause ordering, and structural clarity without altering claims.",
+      "default_severity": "MEDIUM",
+      "preserves_meaning": true
+    },
+    "collocation": {
+      "zh_label": "搭配修正",
+      "en_label": "Collocation Improvement",
+      "zh_desc": "动宾、介宾、形容词-名词等学术惯用搭配修正（如 do an experiment -> conduct an experiment）。",
+      "en_desc": "Academic verb-noun, preposition, and modifier collocation fixes.",
+      "default_severity": "MEDIUM",
+      "preserves_meaning": true
+    },
+    "academic_register": {
+      "zh_label": "学术语域",
+      "en_label": "Academic Register & Tone",
+      "zh_desc": "消除口语化、宣传化、绝对化表达及缩略形式，贴合目标期刊/学位/基金文体语域。",
+      "en_desc": "Removing colloquialisms, hype, contractions, and overclaiming to match target academic register.",
+      "default_severity": "MEDIUM",
+      "preserves_meaning": true
+    },
+    "conciseness": {
+      "zh_label": "精简冗余",
+      "en_label": "Conciseness & De-nominalization",
+      "zh_desc": "删去空洞套话与冗余名词化（如 due to the fact that、进行了……的研究），提高信息密度。",
+      "en_desc": "Trimming wordy filler and redundant nominalizations while preserving all substantive content.",
+      "default_severity": "LOW",
+      "preserves_meaning": true
+    },
+    "cohesion": {
+      "zh_label": "衔接连贯",
+      "en_label": "Cohesion & Flow",
+      "zh_desc": "修正逻辑连接词误用与指代不明，增强句间与段落内部信息流连贯性。",
+      "en_desc": "Fixing misused transitions, unclear anaphora, and inter-sentential information flow.",
+      "default_severity": "LOW",
+      "preserves_meaning": true
+    },
+    "terminology": {
+      "zh_label": "术语统一",
+      "en_label": "Terminology Consistency",
+      "zh_desc": "依据锁定术语表或领域惯例统一全篇核心术语译法、大小写与连字符变体。",
+      "en_desc": "Enforcing locked glossary targets, domain conventions, capitalization, and hyphenation consistency.",
+      "default_severity": "HIGH",
+      "preserves_meaning": true
+    },
+    "abbreviation": {
+      "zh_label": "缩写规范",
+      "en_label": "Abbreviation Governance",
+      "zh_desc": "规范 Abstract 与正文中首次出现定义形式 Full Term (ABBR)，消除未定义使用与重复定义。",
+      "en_desc": "Enforcing first-mention Full Term (ABBR) definition in Abstract and Body and removing redundant expansions.",
+      "default_severity": "MEDIUM",
+      "preserves_meaning": true
+    },
+    "punctuation_format": {
+      "zh_label": "标点与格式",
+      "en_label": "Punctuation & Formatting",
+      "zh_desc": "全半角标点混用、引号/括号配对、英美拼写统一及图表编号样式规范。",
+      "en_desc": "Full/half-width punctuation alignment, US/UK spelling harmonization, and Fig./Table reference formatting.",
+      "default_severity": "LOW",
+      "preserves_meaning": true
+    },
+    "chinglish_fix": {
+      "zh_label": "中式英语/翻译腔修正",
+      "en_label": "Chinglish & Translationese Fix",
+      "zh_desc": "消除直译腔、主语残缺、Because...so/Although...but 迁移错误并重排英文信息重心。",
+      "en_desc": "Fixing L1 transfer errors, literal translationese, and awkward topic-comment information structure.",
+      "default_severity": "MEDIUM",
+      "preserves_meaning": true
+    },
+    "bilingual_alignment": {
+      "zh_label": "双语对齐",
+      "en_label": "Bilingual Alignment",
+      "zh_desc": "在双语润色模式下对齐中英文句界、术语映射与限定词对应关系。",
+      "en_desc": "Aligning bilingual sentence boundaries, terminology pairs, and epistemic qualifiers.",
+      "default_severity": "MEDIUM",
+      "preserves_meaning": true
+    },
+    "minimal_preserve": {
+      "zh_label": "最小编辑保留",
+      "en_label": "Minimal Preservation (Unchanged)",
+      "zh_desc": "原句语法、术语、语域与限定表达均已符合标准，保持原样不作无谓改写。",
+      "en_desc": "Source sentence is already accurate and idiomatic; preserved verbatim without unnecessary edits.",
+      "default_severity": "INFO",
+      "preserves_meaning": true
+    },
+    "needs_human_review": {
+      "zh_label": "需人工确认",
+      "en_label": "Needs Human Review",
+      "zh_desc": "涉及术语冲突、缺失数据/占位符、语义歧义或潜在事实/公式异常，禁止擅自臆改并上浮人工确认。",
+      "en_desc": "Ambiguous intent, glossary conflict, missing data placeholder, or unreadable span flagged for human review.",
+      "default_severity": "HIGH",
+      "preserves_meaning": true
+    }
+  }
+}

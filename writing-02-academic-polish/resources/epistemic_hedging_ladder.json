@@ -1,0 +1,180 @@
+{
+  "version": "2.0.0",
+  "description": "Bilingual 5-tier epistemic hedging ladder, negation/scope bounds, comparison directionality, SI/academic units, and meta-leakage invariants for academic language polishing.",
+  "epistemic_ladder": {
+    "tier_5_absolute_causal": {
+      "level": 5,
+      "label": "Absolute / Deterministic / Causal",
+      "en": [
+        "prove", "proves", "proved", "proven",
+        "conclusively demonstrate", "conclusively demonstrates", "conclusively demonstrated",
+        "conclusively show", "conclusively shows", "conclusively prove", "conclusively proved",
+        "definitely", "certainly", "undoubtedly", "unquestionably", "always", "never fails",
+        "completely eliminate", "totally eliminate", "entirely eliminate",
+        "inevitably cause", "necessarily cause", "must cause", "guarantees", "guarantee",
+        "is the sole cause", "exclusively caused by", "100% effective", "irrefutably"
+      ],
+      "zh": [
+        "证明", "确证", "无可置疑", "毫无疑问", "必然导致", "必然引起",
+        "完全消除", "彻底消除", "绝对", "必定", "总是", "永远", "唯一原因", "决定性证实"
+      ]
+    },
+    "tier_4_strong_empirical": {
+      "level": 4,
+      "label": "Strong Empirical / Direct Finding",
+      "en": [
+        "demonstrate", "demonstrates", "demonstrated",
+        "confirm", "confirms", "confirmed",
+        "establish", "establishes", "established",
+        "verify", "verifies", "verified",
+        "reveal", "reveals", "revealed",
+        "show that", "shows that", "showed that",
+        "significantly increase", "significantly increases", "significantly increased",
+        "significantly decrease", "significantly decreases", "significantly decreased",
+        "significantly improve", "significantly improves", "significantly improved",
+        "significantly reduce", "significantly reduces", "significantly reduced",
+        "cause", "causes", "caused", "induce", "induces", "induced", "drive", "drives"
+      ],
+      "zh": [
+        "表明", "证实了", "证实", "确认", "揭示", "确立", "验证",
+        "显著提高", "显著降低", "显著增加", "显著减少", "显著改善", "导致", "引起", "促使"
+      ]
+    },
+    "tier_3_moderate_associative": {
+      "level": 3,
+      "label": "Moderate / Associative / Evidential",
+      "en": [
+        "indicate", "indicates", "indicated",
+        "suggest", "suggests", "suggested",
+        "imply", "implies", "implied",
+        "support", "supports", "supported",
+        "be associated with", "associated with", "is associated with", "are associated with",
+        "correlate with", "correlates with", "correlated with",
+        "point to", "points to", "consistent with", "reflect", "reflects"
+      ],
+      "zh": [
+        "提示", "暗示", "支持", "与……相关", "相关", "呈正相关", "呈负相关", "符合", "反映出", "说明"
+      ]
+    },
+    "tier_2_cautious_tentative": {
+      "level": 2,
+      "label": "Cautious / Tentative / Hedged",
+      "en": [
+        "may", "might", "could", "can potentially",
+        "appear to", "appears to", "appeared to",
+        "seem to", "seems to", "seemed to",
+        "tend to", "tends to", "tended to",
+        "possibly", "perhaps", "presumably", "plausibly", "conceivably",
+        "preliminary", "preliminarily", "tentative", "tentatively",
+        "likely", "unlikely", "partly", "partially", "in part",
+        "speculate", "hypothesize", "potential", "potentially", "to some extent"
+      ],
+      "zh": [
+        "可能", "或许", "也许", "似乎", "看起来", "倾向于", "初步", "暂定",
+        "部分解释", "部分地", "在一定程度上", "推测", "假设", "潜在地", "有可能"
+      ]
+    },
+    "tier_1_negation_scope": {
+      "level": 1,
+      "label": "Negation Polarity & Scope/Boundary Qualifiers",
+      "negation": {
+        "en": [
+          "not", "no", "never", "neither", "nor", "without", "cannot",
+          "can't", "don't", "doesn't", "didn't", "won't", "wouldn't", "couldn't", "shouldn't",
+          "isn't", "aren't", "wasn't", "weren't", "haven't", "hasn't", "hadn't",
+          "mustn't", "needn't", "shan't", "mightn't",
+          "fail to", "fails to", "failed to", "failing to",
+          "lack", "lacks", "lacked", "lacking", "lack of",
+          "absence of", "none of", "free of", "unable to", "impossible",
+          "hardly", "rarely", "seldom", "scarcely", "insignificant", "non-significant",
+          "does not", "did not", "do not", "is not", "are not", "was not", "were not",
+          "will not", "would not", "could not", "should not", "have not", "has not", "had not", "must not", "need not",
+          "no significant", "no evidence of", "zero"
+        ],
+        "zh": [
+          "不", "非", "无", "未", "没", "没有", "并非", "绝不", "既不", "也不",
+          "不含", "缺乏", "缺少", "显著性不足", "不显著", "无显著",
+          "失败", "未能", "难以", "很少", "罕见", "无法", "不能", "不可能", "免于", "零"
+        ],
+        "zh_negation_exclusions": [
+          "非常", "不错", "不仅", "不但", "不仅如此", "不同", "不断", "不少", "不凡", "不俗",
+          "不论", "不管", "无论", "无非", "非凡", "非但", "不可避免", "不可或缺", "不可替代",
+          "不难发现", "不言而喻", "毫无疑问", "未来", "前所未有", "不失为"
+        ]
+      },
+      "scope_bounds": {
+        "en": [
+          "respectively", "only", "solely", "exclusively", "merely",
+          "within", "limited to", "restricted to", "confined to",
+          "under ambient", "at ambient", "in vitro", "in vivo", "ex vivo", "in silico",
+          "in our cohort", "in this cohort", "in the present sample",
+          "at least", "at most", "up to", "no more than", "no less than",
+          "strictly less", "strictly greater", "unless", "except", "provided that",
+          "subject to", "if and only if", "iff", "given that", "under the condition",
+          "under the assumption", "per se", "specifically"
+        ],
+        "zh": [
+          "分别", "仅", "只", "只有", "唯一", "仅仅", "局限于", "限于", "仅限于",
+          "至少", "不少于", "不低于", "至多", "最多", "不超过", "不高于", "高达",
+          "严格小于", "严格大于", "除非", "除了", "前提是", "只要",
+          "条件下", "在……条件下", "受限于", "取决于", "当且仅当", "本队列中", "在本样本中", "体外", "体内"
+        ]
+      }
+    }
+  },
+  "comparison_direction": {
+    "increase_or_greater": {
+      "en": [
+        "greater than", "higher than", "larger than", "more than", "exceed", "exceeds", "exceeded",
+        "higher", "greater", "larger", "better",
+        "above", "increase", "increases", "increased", "elevate", "elevates", "elevated",
+        "upregulate", "upregulated", "enhance", "enhanced", "outperform", "outperforms", "superior to"
+      ],
+      "zh": [
+        "高于", "大于", "超过", "多于", "上升", "增加", "提高", "升高", "上调", "增强", "优于"
+      ]
+    },
+    "decrease_or_less": {
+      "en": [
+        "less than", "lower than", "smaller than", "fewer than", "below", "under",
+        "lower", "smaller", "worse",
+        "decrease", "decreases", "decreased", "reduce", "reduces", "reduced",
+        "decline", "declines", "declined", "downregulate", "downregulated",
+        "inhibit", "inhibited", "inferior to", "worse than"
+      ],
+      "zh": [
+        "低于", "小于", "少于", "下降", "减少", "降低", "减弱", "下调", "抑制", "劣于"
+      ]
+    }
+  },
+  "si_and_academic_units": [
+    "s", "ms", "us", "μs", "ns", "ps", "fs", "min", "h", "hr", "hrs",
+    "Hz", "kHz", "MHz", "GHz", "THz",
+    "J", "kJ", "MJ", "eV", "keV", "MeV", "GeV", "TeV", "W", "mW", "kW", "MW",
+    "m", "km", "cm", "mm", "um", "μm", "nm", "pm", "Å",
+    "kg", "g", "mg", "ug", "μg", "ng", "pg", "Da", "kDa",
+    "mol", "mmol", "μmol", "nmol", "M", "mM", "μM", "nM", "ppm", "ppb", "wt%", "vol%",
+    "L", "mL", "uL", "μL",
+    "bit", "bits", "B", "KB", "MB", "GB", "TB", "PB", "bps", "kbps", "Mbps", "Gbps", "qubit", "qubits", "ebit",
+    "K", "°C", "°F", "Pa", "kPa", "MPa", "GPa", "bar", "atm", "Torr",
+    "V", "mV", "kV", "A", "mA", "μA", "Ω", "kΩ", "MΩ", "F", "μF", "nF", "pF", "H", "T", "mT", "G",
+    "dB", "dBm", "rad", "deg", "°", "%", "‰", "p-value", "SD", "SE", "CI", "AUC", "ROC", "F1", "BLEU", "ROUGE"
+  ],
+  "meta_leakage_patterns": [
+    "^\\s*(?:以下是|下面是|为您|这是)?(?:该句|本句|该段|本段|原文|上述内容|这段文字)?的?(?:润色|修改|改写|翻译|校对)(?:后)?(?:版本|结果|文本)?[：:]?",
+    "^\\s*(?:润色后|改写后|修改后|Revised version|Polished version|Polished text|Edited text|Note: I changed|Here is the (?:polished|revised|edited|updated))\\b[：:]?",
+    "^\\s*Sure,? here(?:'s| is) the (?:polished|revised|edited)\\b",
+    "^\\s*(?:注|Note)[：:]\\s*(?:我已|已对|I (?:have )?(?:changed|revised|polished|kept))",
+    "\\[context_only_do_not_edit\\]"
+  ],
+  "academic_stopwords": [
+    "this paper", "in this paper", "this study", "this work", "in this work",
+    "this section", "in this section", "the next section", "previous work",
+    "related work", "experimental results", "simulation results", "future work",
+    "on the other hand", "in addition", "for example", "in particular",
+    "in general", "as shown in", "can be seen", "is defined as", "is given by",
+    "we propose", "we present", "we show", "we consider",
+    "et al", "fig", "figure", "table", "section", "equation",
+    "theorem", "lemma", "corollary", "proposition", "definition", "appendix"
+  ]
+}
