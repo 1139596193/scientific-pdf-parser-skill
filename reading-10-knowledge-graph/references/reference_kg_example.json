@@ -1,0 +1,384 @@
+{
+  "schema_version": "1.0.0",
+  "is_example_only": true,
+  "description": "Self-contained dual-paper JATS reference knowledge graph example (fictionalized catalysis corpus, NOT a formal test answer).",
+  "case_id": "example_dual_paper_catalysis_kg",
+  "ingest_mode": "jats_corpus",
+  "locator_scheme": "jats_paragraph",
+  "independent_paper_count": 2,
+  "documents": [
+    {
+      "doc_id": "D1",
+      "source_id": "primary",
+      "role": "primary",
+      "title": "Porous Ni-N-C Single-Atom Catalyst for Low-Overpotential CO2 Electroreduction",
+      "doi": "10.1000/example.primary.2025.001",
+      "authors": ["Lin Wei", "Elena Novak"],
+      "year": 2025,
+      "license": "CC-BY-4.0",
+      "source_hash": "example_sha256_primary_001"
+    },
+    {
+      "doc_id": "D2",
+      "source_id": "secondary",
+      "role": "secondary",
+      "title": "Thermal Sintering Limits of Ni-N-C Catalysts Under Elevated Potential",
+      "doi": "10.2000/example.secondary.2026.002",
+      "authors": ["Marcus Reed", "Hana Sato"],
+      "year": 2026,
+      "license": "CC-BY-NC-4.0",
+      "source_hash": "example_sha256_secondary_002",
+      "verification_twin_file": "secondary-publisher.xml"
+    }
+  ],
+  "verification_twins": [
+    {
+      "twin_file": "secondary-publisher.xml",
+      "is_verification_twin": true,
+      "twin_of_doc_id": "D2",
+      "twin_of_source_id": "secondary"
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": "N-001",
+      "canonical_name": "Ni-N-C",
+      "entity_type": "Material_or_Chemical",
+      "aliases": ["Nickel-Nitrogen-Carbon"],
+      "source_ids": ["primary", "secondary"],
+      "independent_source_ids": ["primary", "secondary"],
+      "is_cross_paper_shared": true,
+      "context_scope": "Canonical Ni-N-C single-atom electrocatalyst composition",
+      "evidence": [
+        {
+          "source_id": "primary",
+          "paragraph_id": "p-002",
+          "page_number": null,
+          "verbatim_quote": "Nickel-Nitrogen-Carbon (Ni-N-C) was synthesized via pyrolysis at 900 °C."
+        },
+        {
+          "source_id": "secondary",
+          "paragraph_id": "sec2-p01",
+          "page_number": null,
+          "verbatim_quote": "Ni-N-C (Nickel-Nitrogen-Carbon) electrodes were tested under continuous -1.2 V vs. RHE."
+        }
+      ]
+    },
+    {
+      "node_id": "N-002",
+      "canonical_name": "CO Faradaic efficiency",
+      "entity_type": "Metric_or_Property",
+      "aliases": ["FE_CO"],
+      "source_ids": ["primary", "secondary"],
+      "independent_source_ids": ["primary", "secondary"],
+      "is_cross_paper_shared": true,
+      "context_scope": "Evaluated per paper experimental condition",
+      "evidence": [
+        {
+          "source_id": "primary",
+          "paragraph_id": "p-003",
+          "page_number": null,
+          "verbatim_quote": "Ni-N-C increases CO Faradaic efficiency to 92.4% at -0.7 V vs. RHE (n = 5, p < 0.01)."
+        },
+        {
+          "source_id": "secondary",
+          "paragraph_id": "sec2-p03",
+          "page_number": null,
+          "verbatim_quote": "Under -1.2 V vs. RHE for 24 h, Ni-N-C decreases CO Faradaic efficiency to 54.0% due to metal sintering."
+        }
+      ]
+    },
+    {
+      "node_id": "N-003",
+      "canonical_name": "catalyst",
+      "entity_type": "Material_or_Chemical",
+      "source_ids": ["primary"],
+      "independent_source_ids": ["primary"],
+      "is_cross_paper_shared": false,
+      "context_scope": "Primary study batch prepared by 900 C pyrolysis",
+      "evidence": [
+        {
+          "source_id": "primary",
+          "paragraph_id": "p-002",
+          "page_number": null,
+          "verbatim_quote": "The pyrolyzed catalyst exhibited isolated NiN4 sites."
+        }
+      ]
+    },
+    {
+      "node_id": "N-004",
+      "canonical_name": "catalyst",
+      "entity_type": "Material_or_Chemical",
+      "source_ids": ["secondary"],
+      "independent_source_ids": ["secondary"],
+      "is_cross_paper_shared": false,
+      "context_scope": "Secondary commercial-precursor electrode batch tested at -1.2 V",
+      "evidence": [
+        {
+          "source_id": "secondary",
+          "paragraph_id": "sec2-p01",
+          "page_number": null,
+          "verbatim_quote": "Commercial-precursor catalyst ink was coated onto carbon paper."
+        }
+      ]
+    },
+    {
+      "node_id": "N-005",
+      "canonical_name": "control group",
+      "entity_type": "Dataset_or_Sample",
+      "source_ids": ["primary"],
+      "independent_source_ids": ["primary"],
+      "is_cross_paper_shared": false,
+      "context_scope": "Primary nitrogen-doped carbon (N-C) without Ni",
+      "evidence": [
+        {
+          "source_id": "primary",
+          "paragraph_id": "p-003",
+          "page_number": null,
+          "verbatim_quote": "Compared with the metal-free N-C control group, Ni-N-C outperformed baseline selectivity."
+        }
+      ]
+    },
+    {
+      "node_id": "N-006",
+      "canonical_name": "control group",
+      "entity_type": "Dataset_or_Sample",
+      "source_ids": ["secondary"],
+      "independent_source_ids": ["secondary"],
+      "is_cross_paper_shared": false,
+      "context_scope": "Secondary bare carbon paper control at -1.2 V",
+      "evidence": [
+        {
+          "source_id": "secondary",
+          "paragraph_id": "sec2-p02",
+          "page_number": null,
+          "verbatim_quote": "A bare carbon paper control group was run at -1.2 V vs. RHE."
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "E-001",
+      "subject_id": "N-001",
+      "relation": "increases",
+      "object_id": "N-002",
+      "direction": "subject_to_object",
+      "epistemic_status": "direct_experimental",
+      "polarity": "positive",
+      "quantitative_value": "92.4%",
+      "qualifiers": {"potential": "-0.7 V vs. RHE", "sample_size": "n = 5", "significance": "p < 0.01"},
+      "source_id": "primary",
+      "evidence": [
+        {
+          "source_id": "primary",
+          "paragraph_id": "p-003",
+          "page_number": null,
+          "verbatim_quote": "Ni-N-C increases CO Faradaic efficiency to 92.4% at -0.7 V vs. RHE (n = 5, p < 0.01)."
+        }
+      ]
+    },
+    {
+      "edge_id": "E-002",
+      "subject_id": "N-001",
+      "relation": "outperforms",
+      "object_id": "N-005",
+      "direction": "subject_to_object",
+      "epistemic_status": "direct_experimental",
+      "polarity": "positive",
+      "source_id": "primary",
+      "evidence": [
+        {
+          "source_id": "primary",
+          "paragraph_id": "p-003",
+          "page_number": null,
+          "verbatim_quote": "Compared with the metal-free N-C control group, Ni-N-C outperformed baseline selectivity."
+        }
+      ]
+    },
+    {
+      "edge_id": "E-003",
+      "subject_id": "N-003",
+      "relation": "part_of",
+      "object_id": "N-001",
+      "direction": "subject_to_object",
+      "epistemic_status": "definition_or_setup",
+      "polarity": "neutral",
+      "source_id": "primary",
+      "evidence": [
+        {
+          "source_id": "primary",
+          "paragraph_id": "p-002",
+          "page_number": null,
+          "verbatim_quote": "The pyrolyzed catalyst exhibited isolated NiN4 sites."
+        }
+      ]
+    },
+    {
+      "edge_id": "E-004",
+      "subject_id": "N-001",
+      "relation": "decreases",
+      "object_id": "N-002",
+      "direction": "subject_to_object",
+      "epistemic_status": "direct_experimental",
+      "polarity": "negative",
+      "quantitative_value": "54.0%",
+      "qualifiers": {"potential": "-1.2 V vs. RHE", "duration": "24 h"},
+      "source_id": "secondary",
+      "evidence": [
+        {
+          "source_id": "secondary",
+          "paragraph_id": "sec2-p03",
+          "page_number": null,
+          "verbatim_quote": "Under -1.2 V vs. RHE for 24 h, Ni-N-C decreases CO Faradaic efficiency to 54.0% due to metal sintering."
+        }
+      ]
+    },
+    {
+      "edge_id": "E-005",
+      "subject_id": "N-001",
+      "relation": "evaluates_on",
+      "object_id": "N-006",
+      "direction": "subject_to_object",
+      "epistemic_status": "definition_or_setup",
+      "polarity": "neutral",
+      "source_id": "secondary",
+      "evidence": [
+        {
+          "source_id": "secondary",
+          "paragraph_id": "sec2-p02",
+          "page_number": null,
+          "verbatim_quote": "A bare carbon paper control group was run at -1.2 V vs. RHE."
+        }
+      ]
+    },
+    {
+      "edge_id": "E-006",
+      "subject_id": "N-004",
+      "relation": "part_of",
+      "object_id": "N-001",
+      "direction": "subject_to_object",
+      "epistemic_status": "definition_or_setup",
+      "polarity": "neutral",
+      "source_id": "secondary",
+      "evidence": [
+        {
+          "source_id": "secondary",
+          "paragraph_id": "sec2-p01",
+          "page_number": null,
+          "verbatim_quote": "Commercial-precursor catalyst ink was coated onto carbon paper."
+        }
+      ]
+    }
+  ],
+  "merge_decisions": [
+    {
+      "decision_id": "M-001",
+      "canonical_node_id": "N-001",
+      "merged_mentions": ["Nickel-Nitrogen-Carbon", "Ni-N-C"],
+      "merged_source_ids": ["primary", "secondary"],
+      "merge_basis": "Independent identical acronym definitions in primary (p-002) and secondary (sec2-p01).",
+      "evidence_refs": [
+        {"source_id": "primary", "paragraph_id": "p-002"},
+        {"source_id": "secondary", "paragraph_id": "sec2-p01"}
+      ]
+    }
+  ],
+  "non_merge_decisions": [
+    {
+      "decision_id": "NM-001",
+      "node_a_id": "N-003",
+      "node_b_id": "N-004",
+      "surface_term": "catalyst",
+      "reason_code": "GUARD_GENERIC_MATERIAL_ROLE",
+      "explanation": "Pyrolyzed lab batch (primary) vs commercial-precursor ink (secondary) are distinct physical catalyst batches."
+    },
+    {
+      "decision_id": "NM-002",
+      "node_a_id": "N-005",
+      "node_b_id": "N-006",
+      "surface_term": "control group",
+      "reason_code": "GUARD_GENERIC_CONTROL_AND_COHORT",
+      "explanation": "Metal-free N-C control (primary) vs bare carbon paper control (secondary) are distinct experimental controls."
+    }
+  ],
+  "conflicts": [
+    {
+      "conflict_id": "C-001",
+      "conflict_scope": "cross_paper",
+      "conflict_type": "polarity_opposite",
+      "involved_node_ids": ["N-001", "N-002"],
+      "involved_edge_ids": ["E-001", "E-004"],
+      "summary": "Primary reports Ni-N-C increases FE_CO to 92.4% at -0.7 V, whereas secondary reports FE_CO decreases to 54.0% after 24 h at -1.2 V due to sintering.",
+      "resolution_policy": "preserved_without_averaging"
+    }
+  ],
+  "incremental_update_diff": {
+    "v1_primary_counts": {"nodes": 3, "edges": 3},
+    "v2_total_counts": {"nodes": 6, "edges": 6},
+    "added_node_ids": ["N-004", "N-006"],
+    "added_edge_ids": ["E-004", "E-005", "E-006"],
+    "cross_paper_merged_node_ids": ["N-001", "N-002"],
+    "rejected_non_merge_pairs": [
+      {"decision_id": "NM-001", "surface_term": "catalyst", "node_a_id": "N-003", "node_b_id": "N-004"},
+      {"decision_id": "NM-002", "surface_term": "control group", "node_a_id": "N-005", "node_b_id": "N-006"}
+    ],
+    "newly_introduced_conflict_ids": ["C-001"]
+  },
+  "queries": [
+    {
+      "query_id": "Q1",
+      "template_id": "single_hop_fact",
+      "question": "How does Ni-N-C affect CO Faradaic efficiency in the primary study?",
+      "answer_status": "answered",
+      "matched_node_ids": ["N-001", "N-002"],
+      "matched_edge_ids": ["E-001"],
+      "answer_summary": "In primary (p-003), Ni-N-C increases CO Faradaic efficiency to 92.4% at -0.7 V vs. RHE (n=5, p<0.01)."
+    },
+    {
+      "query_id": "Q2",
+      "template_id": "multi_hop_path",
+      "question": "Trace the path from primary catalyst batch N-003 through Ni-N-C to primary control group N-005.",
+      "answer_status": "answered",
+      "matched_node_ids": ["N-003", "N-001", "N-005"],
+      "matched_edge_ids": ["E-003", "E-002"],
+      "answer_summary": "N-003 -[part_of]-> N-001 -[outperforms]-> N-005."
+    },
+    {
+      "query_id": "Q3",
+      "template_id": "cross_paper_comparison",
+      "question": "Compare CO Faradaic efficiency outcomes across primary and secondary papers.",
+      "answer_status": "answered",
+      "matched_node_ids": ["N-001", "N-002"],
+      "matched_edge_ids": ["E-001", "E-004"],
+      "answer_summary": "Primary achieves 92.4% at -0.7 V, while secondary drops to 54.0% at -1.2 V over 24 h due to sintering."
+    },
+    {
+      "query_id": "Q4",
+      "template_id": "conflict_and_disambiguation",
+      "question": "Why were catalyst and control group not merged across papers?",
+      "answer_status": "answered",
+      "matched_node_ids": ["N-003", "N-004", "N-005", "N-006"],
+      "matched_edge_ids": ["E-003", "E-005", "E-006"],
+      "answer_summary": "NM-001 and NM-002 isolate distinct physical batches and control setups."
+    },
+    {
+      "query_id": "Q5",
+      "template_id": "provenance_reverse_trace",
+      "question": "Trace provenance for edge E-004.",
+      "answer_status": "answered",
+      "matched_node_ids": ["N-001", "N-002"],
+      "matched_edge_ids": ["E-004"],
+      "answer_summary": "Grounded in secondary::sec2-p03 (page_number=null)."
+    },
+    {
+      "query_id": "Q6",
+      "template_id": "unreported_boundary_check",
+      "question": "What are the original PDF page numbers and raw TEM pixel images for secondary?",
+      "answer_status": "unreported",
+      "matched_node_ids": [],
+      "matched_edge_ids": [],
+      "answer_summary": "Unreported: JATS corpus lacks PDF page numbers and image pixels."
+    }
+  ]
+}

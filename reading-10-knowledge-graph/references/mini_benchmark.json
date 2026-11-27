@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0.0",
+  "description": "12 reusable scientific knowledge graph edge-case benchmark items covering JATS locators, metadata isolation, twin disambiguation, non-merge guardrails, epistemic auditing, conflict preservation, query drift, and honest degradation.",
+  "items": [
+    {
+      "case_id": "MB-01",
+      "category": "jats_no_fake_page",
+      "input_snippet": "locator_scheme='jats_paragraph'; node evidence carries page_number=1 for paragraph sec2-p01.",
+      "expected_decision": "REJECT_AS_HIGH_BLOCKER",
+      "expected_audit_code": "FAKE_PDF_PAGE_IN_JATS",
+      "rationale": "JATS paragraph packages have no PDF pages; inventing page 1 violates locator integrity."
+    },
+    {
+      "case_id": "MB-02",
+      "category": "root_doi_isolation",
+      "input_snippet": "case.json root has doi='10.1000/p1'; secondary-material.json has no DOI in XML or manifest.",
+      "expected_decision": "KEEP_SECONDARY_DOI_NULL_AND_CATCH_LEAK",
+      "expected_audit_code": "ROOT_METADATA_LEAKAGE",
+      "rationale": "Root DOI/title/authors belong strictly to the primary paper and must never leak onto secondary."
+    },
+    {
+      "case_id": "MB-03",
+      "category": "verification_twin_non_cross_paper",
+      "input_snippet": "Merge decision cites secondary-material.json and secondary-publisher.xml as 2-paper corroboration.",
+      "expected_decision": "REJECT_CROSS_PAPER_CLAIM",
+      "expected_audit_code": "SAME_PAPER_MULTI_FORMAT_AS_CROSS_PAPER",
+      "rationale": "secondary-publisher.xml is a verification twin of secondary-material.json, not a second independent paper."
+    },
+    {
+      "case_id": "MB-04",
+      "category": "generic_term_non_merge",
+      "input_snippet": "Primary uses 'control group' (saline, n=10); Secondary uses 'control group' (untreated cells, n=24).",
+      "expected_decision": "SPLIT_INTO_TWO_NODES_LOG_NON_MERGE",
+      "expected_audit_code": "GENERIC_TERM_OVERMERGE",
+      "rationale": "Generic cohort/control/catalyst/CNN terms across papers cannot merge into one physical instance."
+    },
+    {
+      "case_id": "MB-05",
+      "category": "intra_doc_acronym_merge",
+      "input_snippet": "Primary defines 'Copper Metal-Organic Framework (Cu-MOF)'; Secondary defines 'Cu-MOF (Copper Metal-Organic Framework)'.",
+      "expected_decision": "SAFE_MERGE_WITH_PROVENANCE",
+      "expected_audit_code": "NONE_SAFE_MERGE",
+      "rationale": "Independent matching expansions of a specific named framework justify a cross-paper merge decision."
+    },
+    {
+      "case_id": "MB-06",
+      "category": "introduction_citation_upgrade",
+      "input_snippet": "Introduction: 'Prior work showed X promotes Y (Doe et al., 2020) [5].' Labeled epistemic_status='direct_experimental'.",
+      "expected_decision": "REJECT_AND_DOWNGRADE_TO_REPORTED_PRIOR_WORK",
+      "expected_audit_code": "EPISTEMIC_UPGRADE_VIOLATION",
+      "rationale": "Cited prior-art claims in Introduction cannot be labeled direct_experimental."
+    },
+    {
+      "case_id": "MB-07",
+      "category": "correlation_to_causal_overclaim",
+      "input_snippet": "Quote: 'Serum level A correlated with score B (r=0.41).' Edge relation='causes'.",
+      "expected_decision": "REJECT_AND_DOWNGRADE_TO_CORRELATES_WITH",
+      "expected_audit_code": "CAUSAL_STRENGTH_OVERCLAIM",
+      "rationale": "Associative/hedged evidence cannot be upgraded to strong causal predicates."
+    },
+    {
+      "case_id": "MB-08",
+      "category": "cross_paper_conflict_preservation",
+      "input_snippet": "Primary: Catalyst C increases yield (85% at 298 K); Secondary: Catalyst C decreases yield (40% at 380 K).",
+      "expected_decision": "PRESERVE_BOTH_EDGES_AND_CONFLICT_STATUS_SUCCESS",
+      "expected_audit_code": "SCIENTIFIC_CONFLICT_PRESERVED",
+      "rationale": "Genuine scientific conflicts with condition qualifiers are preserved without averaging and do not downgrade status."
+    },
+    {
+      "case_id": "MB-09",
+      "category": "multi_hop_bfs_retrieval",
+      "input_snippet": "Query asks path from Material M through Method A to Metric P across 2 hops.",
+      "expected_decision": "RETURN_CONNECTED_PATH_WITH_PER_HOP_QUOTES",
+      "expected_audit_code": "NONE_PASS",
+      "rationale": "Multi-hop queries must traverse real assembled graph edges and attach per-hop provenance."
+    },
+    {
+      "case_id": "MB-10",
+      "category": "query_graph_drift_guard",
+      "input_snippet": "Query claims supporting edge E-999 which was removed or never existed in assembled_kg.json.",
+      "expected_decision": "FLAG_QUERY_DRIFT_BLOCKER",
+      "expected_audit_code": "QUERY_GRAPH_DRIFT",
+      "rationale": "Answers citing non-existent graph IDs must be intercepted before final delivery."
+    },
+    {
+      "case_id": "MB-11",
+      "category": "unreported_boundary_refusal",
+      "input_snippet": "Query requests raw supplementary clinical patient CSV or microscope pixel values absent from JATS text.",
+      "expected_decision": "ANSWER_STATUS_UNREPORTED",
+      "expected_audit_code": "NONE_HONEST_BOUNDARY",
+      "rationale": "Missing supplementary/pixel/clinical data must return answer_status='unreported' without fabrication."
+    },
+    {
+      "case_id": "MB-12",
+      "category": "unreadable_pdf_honest_degradation",
+      "input_snippet": "Scanned image-only PDF with 0 native characters and unavailable OCR produces unextractable_asset.",
+      "expected_decision": "DEGRADE_STATUS_TO_PARTIAL_OR_FAILED",
+      "expected_audit_code": "SOURCE_COVERAGE_BLOCKER",
+      "rationale": "Unreadable PDF inputs must never fabricate graph facts and must force honest partial/failed status."
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Deterministic entity name normalization, intra-document acronym binding, cross-paper merge rules, and non-merge guardrails against false equivalence.",
+  "normalization_rules": {
+    "canonical_key_steps": [
+      "Normalize Unicode PDF ligatures (fi, fl, ff, ffi, ffl, st) and strip soft hyphens.",
+      "Normalize smart quotes, en-dash/em-dash/minus to ASCII hyphen-minus '-'.",
+      "Collapse contiguous whitespace to single ASCII space and trim leading/trailing punctuation.",
+      "Generate case-folded lookup key while preserving original surface casing in display_name and aliases.",
+      "Normalize chemical/math spacing around parentheses and slashes without altering stoichiometric digits or subscripts."
+    ],
+    "preserve_distinctions": [
+      "Numeric subscripts, charge states, and isotope/version numbers (e.g., TiO2 vs Ti2O3, ResNet-50 vs ResNet-101, GPT-3 vs GPT-4).",
+      "Chirality, phase, and crystal polymorph prefixes (alpha-, beta-, L-, D-, anatase vs rutile).",
+      "Statistical qualifiers and units (e.g., p < 0.05, 10 mg/kg vs 50 mg/kg)."
+    ]
+  },
+  "intra_doc_acronym_rules": {
+    "patterns": [
+      "Full Name (ACRONYM)",
+      "ACRONYM (Full Name)",
+      "中文全称（英文缩写）"
+    ],
+    "validation_constraints": [
+      "Acronym candidate must be 2 to 12 uppercase/alphanumeric/hyphen characters (not a common unit or roman numeral).",
+      "Expansion must appear in the same source_id before or alongside the acronym and share leading initials or contiguous subtokens.",
+      "Store binding with exact source_id and anchor_id; intra-doc acronym bindings NEVER automatically propagate to another paper unless that paper independently defines or matches the same expansion."
+    ]
+  },
+  "cross_paper_merge_sufficient_conditions": [
+    {
+      "rule_id": "MERGE_EXACT_CHEMICAL_IDENTIFIER",
+      "entity_types": ["Material_or_Chemical"],
+      "condition": "Both mentions specify the exact same unambiguous chemical formula, CAS number, or canonical IUPAC name (not a generic class noun) AND do not conflict on phase, doping, or physical batch identity.",
+      "requires_evidence": true
+    },
+    {
+      "rule_id": "MERGE_CANONICAL_PUBLIC_BENCHMARK",
+      "entity_types": ["Dataset_or_Sample", "Task_or_Problem"],
+      "condition": "Both mentions reference an identical named public benchmark dataset or standard task with matching version/split (e.g., ImageNet-1K, GLUE, SQuAD v2.0).",
+      "requires_evidence": true
+    },
+    {
+      "rule_id": "MERGE_NAMED_MODEL_SPECIFIER",
+      "entity_types": ["Method_or_Model"],
+      "condition": "Both mentions identify a specific, named model or standardized algorithm with matching version/functional/basis (e.g., B3LYP/6-31G*, ResNet-50, BERT-base) and no conflicting custom modification.",
+      "requires_evidence": true
+    },
+    {
+      "rule_id": "MERGE_VERIFIED_ACRONYM_EXPANSION",
+      "entity_types": ["Material_or_Chemical", "Method_or_Model", "Task_or_Problem", "Dataset_or_Sample", "Metric_or_Property"],
+      "condition": "Paper A defines 'Full Name (ACR)' and Paper B defines or explicitly matches the same 'Full Name' and 'ACR' without generic-term collision.",
+      "requires_evidence": true
+    },
+    {
+      "rule_id": "MERGE_RESEARCHER_IDENTITY",
+      "entity_types": ["Researcher"],
+      "condition": "Full given+family name matches AND shares at least one corroborating signal (ORCID, affiliation, email, or co-cited paper DOI); surname-only or initial-only homonyms MUST NOT merge.",
+      "requires_evidence": true
+    }
+  ],
+  "non_merge_guardrails": [
+    {
+      "rule_id": "GUARD_GENERIC_CONTROL_AND_COHORT",
+      "description": "Generic experimental groups, cohorts, and physical samples represent distinct physical subjects in separate studies and MUST NEVER merge across papers.",
+      "terms": [
+        "control group", "control", "baseline", "placebo", "treatment group", "cohort",
+        "patients", "subjects", "participants", "mice", "rats", "sample", "samples",
+        "specimen", "specimens", "dataset", "datasets", "training set", "test set",
+        "对照组", "实验组", "基线", "安慰剂", "受试者", "患者", "小鼠", "大鼠", "样品", "样本", "数据集", "训练集", "测试集"
+      ],
+      "action": "split_by_source_and_condition"
+    },
+    {
+      "rule_id": "GUARD_GENERIC_MATERIAL_ROLE",
+      "description": "Generic material/chemical class nouns without exact stoichiometry or batch identity MUST NOT merge across papers.",
+      "terms": [
+        "catalyst", "catalysts", "electrode", "electrolyte", "substrate", "solvent",
+        "polymer", "nanoparticle", "nanoparticles", "membrane", "film", "reagent", "ligand",
+        "催化剂", "电极", "电解质", "基底", "溶剂", "聚合物", "纳米颗粒", "薄膜", "试剂", "配体"
+      ],
+      "action": "split_by_source_and_condition"
+    },
+    {
+      "rule_id": "GUARD_GENERIC_MODEL_OR_ALGORITHM",
+      "description": "Broad model family names or unspecified baselines trained/configured independently in separate papers MUST NOT merge as identical trained instances.",
+      "terms": [
+        "model", "models", "algorithm", "algorithms", "method", "methods", "framework",
+        "cnn", "rnn", "lstm", "gnn", "transformer", "transformers", "resnet", "bert",
+        "neural network", "deep learning", "machine learning", "classifier", "regressor",
+        "模型", "算法", "方法", "框架", "神经网络", "分类器"
+      ],
+      "action": "split_by_source_and_condition"
+    },
+    {
+      "rule_id": "GUARD_GENERIC_METRIC_OR_CONDITION",
+      "description": "Generic metric nouns or unspecified conditions measured under different protocols/tasks MUST NOT collapse experimental contexts.",
+      "terms": [
+        "accuracy", "precision", "recall", "f1", "loss", "error", "yield", "efficiency",
+        "selectivity", "stability", "performance", "score", "temperature", "pressure", "ph",
+        "准确率", "精确率", "召回率", "误差", "产率", "效率", "选择性", "稳定性", "性能", "温度", "压力"
+      ],
+      "action": "split_by_source_and_condition"
+    },
+    {
+      "rule_id": "GUARD_NUMERIC_OR_QUALIFIER_CONFLICT",
+      "description": "Entities differing in explicit stoichiometric indices, model versions, species, or experimental conditions MUST NOT be merged.",
+      "terms": [],
+      "action": "reject_merge_record_conflict"
+    },
+    {
+      "rule_id": "GUARD_SAME_PAPER_MULTI_FORMAT_TWIN",
+      "description": "Multiple files representing the same underlying paper (e.g., secondary-material.json and secondary-publisher.xml, or JSON+Markdown of the same paper) are verification twins, NEVER cross-paper alignment or independent cross-paper evidence.",
+      "terms": [],
+      "action": "reject_cross_paper_claim"
+    },
+    {
+      "rule_id": "synthesis_route_and_lifecycle_stage_isolation",
+      "description": "Same nominal material/system fabricated via different synthesis routes (e.g., ALD vs sol-gel, dry-pressed vs sintered) MUST stay as separate paper-scoped instance nodes (optionally linked via derived_from/part_of under a shared parent formula) rather than merging physical samples; cross-paper quantitative comparisons MUST verify aligned lifecycle stages (e.g., initial/formation vs post-long-cycling) and forbid cross-stage ratio attributions.",
+      "terms": [
+        "synthesis route", "fabrication method", "coating process", "lifecycle stage",
+        "initial", "formation", "post-cycling", "aged", "制备工艺", "实验阶段"
+      ],
+      "action": "split_by_route_and_lifecycle_stage"
+    }
+  ],
+  "non_merge_decision_schema": {
+    "required_fields": [
+      "decision_id",
+      "candidate_a",
+      "candidate_b",
+      "rule_id",
+      "decision",
+      "reason",
+      "kept_separate_node_ids"
+    ],
+    "allowed_decisions": ["do_not_merge", "merged_with_evidence", "uncertain_kept_separate"]
+  }
+}

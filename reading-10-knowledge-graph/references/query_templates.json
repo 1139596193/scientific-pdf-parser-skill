@@ -1,0 +1,159 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Six standardized scientific knowledge graph query templates supporting multi-paper evidence verification, disambiguation, and uncertainty reporting.",
+  "minimum_executed_queries_required": 3,
+  "templates": [
+    {
+      "template_id": "single_hop_fact",
+      "name_en": "Single-Hop Evidence-Grounded Fact Query",
+      "name_zh": "单跳事实与直接证据查询",
+      "description": "Retrieve direct 1-hop relations involving a target entity (method, material, metric, or finding) along with conditions, epistemic status, and exact source_id + locator + verbatim quote.",
+      "required_slots": ["target_entity", "optional_relation_filter", "optional_source_id"],
+      "expected_output_fields": [
+        "query_id",
+        "template_id",
+        "query_text",
+        "status",
+        "matched_nodes",
+        "matched_edges",
+        "subgraph",
+        "evidence_citations",
+        "undetermined_or_missing"
+      ],
+      "example": {
+        "query_text": "What quantitative effect does catalyst A have on CO2 conversion under the reported experimental conditions?",
+        "slots": {
+          "target_entity": "catalyst A",
+          "optional_relation_filter": ["increases", "decreases", "achieves_metric", "has_value"],
+          "optional_source_id": "primary"
+        }
+      }
+    },
+    {
+      "template_id": "multi_hop_path",
+      "name_en": "Multi-Hop Mechanistic / Method-to-Metric Path Query",
+      "name_zh": "多跳路径与机制链路查询",
+      "description": "Traverse 2-to-3 hop paths from a material/method through intermediate mechanisms, datasets, or conditions to target outcomes while preserving per-hop paper scope.",
+      "required_slots": ["start_entity", "end_entity_or_type", "max_hops"],
+      "expected_output_fields": [
+        "query_id",
+        "template_id",
+        "query_text",
+        "status",
+        "paths",
+        "matched_nodes",
+        "matched_edges",
+        "subgraph",
+        "evidence_citations",
+        "undetermined_or_missing"
+      ],
+      "example": {
+        "query_text": "Trace how Method M evaluated on Dataset D affects Metric P and under what Experimental_Condition.",
+        "slots": {
+          "start_entity": "Method M",
+          "end_entity_or_type": "Metric_or_Property",
+          "max_hops": 3
+        }
+      }
+    },
+    {
+      "template_id": "cross_paper_comparison",
+      "name_en": "Cross-Paper Comparative & Condition-Scoped Synthesis",
+      "name_zh": "跨文献方法/结果对比查询",
+      "description": "Compare findings, metrics, or methods between primary and secondary papers WITHOUT collapsing distinct experimental conditions, samples, or numerical results into one conclusion.",
+      "required_slots": ["comparison_axis", "source_ids"],
+      "expected_output_fields": [
+        "query_id",
+        "template_id",
+        "query_text",
+        "status",
+        "per_paper_findings",
+        "shared_canonical_nodes",
+        "non_merged_divergences",
+        "subgraph",
+        "evidence_citations",
+        "undetermined_or_missing"
+      ],
+      "example": {
+        "query_text": "Compare the catalysts and performance metrics reported in primary vs secondary papers without merging distinct experimental regimes.",
+        "slots": {
+          "comparison_axis": "catalyst performance",
+          "source_ids": ["primary", "secondary"]
+        }
+      }
+    },
+    {
+      "template_id": "conflict_and_disambiguation",
+      "name_en": "Conflict Detection & Entity Disambiguation Audit Query",
+      "name_zh": "冲突关系与实体消歧核查查询",
+      "description": "Surface contradicting/non-replicated claims as well as homonym/generic-term non-merge decisions (e.g., why two 'control group' or 'baseline' mentions were kept separate).",
+      "required_slots": ["scope_or_entity"],
+      "expected_output_fields": [
+        "query_id",
+        "template_id",
+        "query_text",
+        "status",
+        "conflict_edges",
+        "merge_decisions",
+        "non_merge_decisions",
+        "subgraph",
+        "evidence_citations",
+        "undetermined_or_missing"
+      ],
+      "example": {
+        "query_text": "Which candidate concepts across the two papers were kept separate rather than merged, and are there any contradicting findings?",
+        "slots": {
+          "scope_or_entity": "all_cross_paper_candidates"
+        }
+      }
+    },
+    {
+      "template_id": "provenance_reverse_trace",
+      "name_en": "Provenance Reverse Traceability Query",
+      "name_zh": "节点/边溯源反查查询",
+      "description": "Given a node_id or edge_id, trace back every supporting independent paper source_id, paragraph_id/anchor_id, section_role, epistemic_status, and verbatim quote (excluding verification twin double-counting).",
+      "required_slots": ["target_graph_ids"],
+      "expected_output_fields": [
+        "query_id",
+        "template_id",
+        "query_text",
+        "status",
+        "resolved_records",
+        "independent_source_count",
+        "verification_twin_notes",
+        "evidence_citations",
+        "undetermined_or_missing"
+      ],
+      "example": {
+        "query_text": "Trace the exact source_id, paragraph_id, and verbatim quote backing edge E-001.",
+        "slots": {
+          "target_graph_ids": ["E-001"]
+        }
+      }
+    },
+    {
+      "template_id": "unreported_boundary_check",
+      "name_en": "Unreported / Undetermined Relation Boundary Query",
+      "name_zh": "未报告项与无法确定关系边界查询",
+      "description": "Check whether a hypothesized relation, cross-paper equivalence, missing metadata field, or figure/supplement-dependent value can be answered from the provided text, returning 'undetermined' when ungrounded.",
+      "required_slots": ["hypothesis_or_missing_check"],
+      "expected_output_fields": [
+        "query_id",
+        "template_id",
+        "query_text",
+        "status",
+        "missing_or_unreported_items",
+        "ungrounded_relations",
+        "content_limitations_hit",
+        "evidence_citations",
+        "undetermined_or_missing"
+      ],
+      "example": {
+        "query_text": "Does the secondary paper report the raw clinical patient-level table or PDF page numbers, and can its baseline be equated to the primary paper's baseline?",
+        "slots": {
+          "hypothesis_or_missing_check": "raw_clinical_data_and_baseline_equivalence"
+        }
+      }
+    }
+  ]
+}
